@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>刷卡回饋 — 工程細節文件</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  :root { --bg:#f7f8fa; --card:#fff; --text:#1d1d1f; --muted:#6e6e73; --line:#e5e5ea; --pri:#007aff; --ok:#248a3d; --warn:#b25e00; --code:#f2f2f7; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111; --card:#1c1c1e; --text:#f5f5f7; --muted:#a1a1a6; --line:#2c2c2e; --pri:#0a84ff; --ok:#30d158; --warn:#ff9f0a; --code:#2c2c2e; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.65 -apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC",sans-serif; }
+  .layout { display:grid; grid-template-columns:240px 1fr; max-width:1200px; margin:0 auto; }
+  nav { position:sticky; top:0; height:100vh; overflow:auto; padding:24px 16px; border-right:1px solid var(--line); font-size:14px; }
+  nav h2 { font-size:15px; margin:0 0 12px; }
+  nav a { display:block; padding:5px 8px; border-radius:6px; color:var(--muted); text-decoration:none; }
+  nav a:hover { background:var(--code); color:var(--text); }
+  main { padding:32px 40px 80px; min-width:0; }
+  h1 { font-size:30px; margin:0 0 6px; }
+  h2.sec { font-size:22px; margin:52px 0 12px; padding-top:12px; border-top:1px solid var(--line); }
+  h3 { font-size:17px; margin:26px 0 8px; }
+  p.lead { color:var(--muted); margin:0 0 24px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px 20px; margin:14px 0; overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; font-size:14px; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; white-space:nowrap; }
+  code { background:var(--code); padding:1px 6px; border-radius:5px; font:13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  pre { background:var(--code); padding:14px 16px; border-radius:10px; overflow-x:auto; font-size:13px; line-height:1.5; }
+  pre code { background:none; padding:0; }
+  .tag { display:inline-block; font-size:12px; padding:1px 8px; border-radius:99px; background:var(--code); color:var(--muted); }
+  .ok { color:var(--ok); } .warn { color:var(--warn); }
+  .callout { border-left:4px solid var(--pri); background:var(--card); padding:10px 16px; border-radius:0 10px 10px 0; margin:14px 0; }
+  .callout.warn { border-color:var(--warn); }
+  .mermaid { text-align:center; }
+  details { margin:8px 0; } summary { cursor:pointer; color:var(--pri); }
+  @media (max-width:860px) { .layout { grid-template-columns:1fr; } nav { position:static; height:auto; border:0; } main { padding:20px 16px 60px; } }
+</style>
+</head>
+<body>
+<div class="layout">
+<nav>
+  <h2>目錄</h2>
+  <a href="#overview">1. 總覽與架構</a>
+  <a href="#model">2. 資料模型</a>
+  <a href="#cycle">3. 帳單週期</a>
+  <a href="#alloc">4. 回饋分配演算法</a>
+  <a href="#recommend">5. 推薦演算法</a>
+  <a href="#write">6. 寫入與重算</a>
+  <a href="#ui">7. 畫面與導覽</a>
+  <a href="#txn-flow">8. 新增消費流程</a>
+  <a href="#pwa">9. PWA 與儲存</a>
+  <a href="#backup">10. 備份與還原</a>
+  <a href="#deploy">11. 建置與部署</a>
+  <a href="#test">12. 測試</a>
+  <a href="#edge">13. 邊界案例</a>
+  <a href="#limits">14. 已知限制</a>
+</nav>
+<main>
+<h1>刷卡回饋 — 工程細節文件</h1>
+<p class="lead">信用卡消費回饋記錄 PWA。React 19 + TypeScript + Dexie (IndexedDB) + Vite + vite-plugin-pwa。單機、離線可用。</p>
+
+<h2 class="sec" id="overview">1. 總覽與架構</h2>
+<div class="card">
+<div class="mermaid">
+flowchart TB
+  subgraph UI["UI 層 (React)"]
+    App["App.tsx<br/>Tab / FAB / Overlay"]
+    Dash["Dashboard<br/>剩餘額度 Bar"]
+    Rec["Records<br/>月份檢視"]
+    Cards["Cards + ChannelLookup"]
+    CE["CardEditor + RuleSheet"]
+    Txn["TxnSheet<br/>新增/編輯消費"]
+    Set["Settings<br/>類型 / 備份"]
+  end
+  subgraph Data["資料層"]
+    Ctx["data.tsx<br/>DataProvider (useLiveQuery)"]
+    DB["db.ts<br/>Dexie + 寫入操作"]
+  end
+  subgraph Domain["領域邏輯 (純函式)"]
+    R["lib/rewards.ts<br/>allocate / reallocate / recommend"]
+    D["lib/date.ts<br/>帳單週期"]
+  end
+  IDB[("IndexedDB<br/>cc-rewards")]
+  SW["Service Worker<br/>Workbox precache"]
+  App --> Dash & Rec & Cards & Set & Txn
+  Cards --> CE
+  Dash & Rec & Cards & CE & Txn & Set --> Ctx
+  Ctx -->|訂閱| DB
+  CE & Txn & Set -->|寫入| DB
+  DB --> R
+  R --> D
+  Txn --> R
+  Dash --> R
+  DB <--> IDB
+  SW -.離線快取.- App
+</div>
+</div>
+<table class="card">
+<tr><th>目錄</th><th>職責</th></tr>
+<tr><td><code>src/lib/date.ts</code></td><td>以本地 <code>YYYY-MM-DD</code> 字串處理日期，避免 UTC 偏移；帳單週期、月份運算。</td></tr>
+<tr><td><code>src/lib/rewards.ts</code></td><td>全部回饋計算（純函式，無 I/O），可單元測試。</td></tr>
+<tr><td><code>src/db.ts</code></td><td>Dexie schema、種子資料、所有「寫入後需重算」的交易性操作、備份。</td></tr>
+<tr><td><code>src/data.tsx</code></td><td>用 <code>useLiveQuery</code> 把四張表轉成 Context，任何寫入自動重繪。</td></tr>
+<tr><td><code>src/pages/*</code></td><td>各畫面；只讀 Context、呼叫 db.ts 寫入函式。</td></tr>
+</table>
+
+<h2 class="sec" id="model">2. 資料模型</h2>
+<div class="card">
+<div class="mermaid">
+erDiagram
+  CATEGORY ||--o{ RULE : "categoryId"
+  CATEGORY ||--o{ TXN : "categoryId"
+  CARD ||--o{ RULE : "cardId"
+  CARD ||--o{ TXN : "cardId"
+  TXN ||--o{ ALLOCATION : "內嵌快照"
+  RULE ||--o{ ALLOCATION : "ruleId"
+  CATEGORY { string id PK string name string color int sortOrder bool archived }
+  CARD { string id PK string name string bank string last4 int statementDay string roundingMode bool archived }
+  RULE { string id PK string cardId FK string categoryId FK float rate int capAmount string resetPeriod string validFrom string validTo string[] channels string note int priority bool enabled }
+  TXN { string id PK string cardId FK string categoryId FK int amount string date string channel string note int reward }
+  ALLOCATION { string ruleId int spend float reward }
+</div>
+</div>
+<h3>設計決策</h3>
+<table class="card">
+<tr><th>決策</th><th>原因</th></tr>
+<tr><td>類型是獨立資料表</td><td>可擴增；規則以 <code>categoryId</code> 關聯。用到的類型只能封存，不能硬刪。</td></tr>
+<tr><td>只支援「消費上限」</td><td>依需求；<code>capAmount = null</code> 代表無上限。</td></tr>
+<tr><td>只算現金回饋</td><td>依需求；取消點數 / 哩程換算。</td></tr>
+<tr><td>指定規則「取代」一般消費</td><td>依需求；超過上限的部分才改用同卡「一般消費」規則，不疊加。</td></tr>
+<tr><td>Transaction 內存 <code>allocations</code> 快照</td><td>額度是「依序吃掉」的，要能 O(筆數) 算出每條規則已用額度，不必每次重跑規則。</td></tr>
+<tr><td>金額用 JS number（整數元）</td><td>回饋以 <code>rate/100</code> 乘；加總後才取整，避免逐筆累積誤差（<code>+1e-9</code> 防浮點）。</td></tr>
+<tr><td>卡片永遠軟刪除（封存）</td><td>保留歷史；只有「永久刪除」會連同交易刪除，需二次確認。</td></tr>
+</table>
+<pre><code>// IndexedDB schema (version 1)
+categories: 'id, sortOrder'
+cards:      'id, sortOrder'
+rules:      'id, cardId, categoryId'
+txns:       'id, cardId, categoryId, date'</code></pre>
+
+<h2 class="sec" id="cycle">3. 帳單週期</h2>
+<p>「重置」不是刪資料，而是<b>已用額度 = 只加總目前週期內的 allocations</b>。結帳日一過，週期區間改變，額度自然回滿；歷史永遠保留。</p>
+<div class="card">
+<div class="mermaid">
+flowchart TD
+  A["輸入 statementDay, 參考日 ref"] --> B["thisStmt = clamp(本月, statementDay)"]
+  B --> C{"ref ≤ thisStmt ?"}
+  C -- 是 --> D["end = thisStmt"]
+  C -- 否 --> E["end = clamp(下月, statementDay)"]
+  D --> F["prevEnd = clamp(end 前一個月, statementDay)"]
+  E --> F
+  F --> G["start = prevEnd + 1 天"]
+  G --> H["週期 = [start, end] 含頭尾"]
+</div>
+</div>
+<table class="card">
+<tr><th>情境 (statementDay=15)</th><th>參考日</th><th>週期</th></tr>
+<tr><td>結帳日前</td><td>2026-10-10</td><td>09-16 ~ 10-15</td></tr>
+<tr><td>結帳日當天 → 算本期</td><td>2026-10-15</td><td>09-16 ~ 10-15</td></tr>
+<tr><td>結帳日隔天 → 新週期</td><td>2026-10-16</td><td>10-16 ~ 11-15</td></tr>
+<tr><td>statementDay=31, 2 月</td><td>2026-02-10</td><td>02-01 ~ 02-28（月底取代）</td></tr>
+<tr><td>跨年 statementDay=5</td><td>2026-12-20</td><td>12-06 ~ 2027-01-05</td></tr>
+</table>
+<p>規則的 <code>resetPeriod</code> 另有 <code>calendarMonth</code>（每月 1 日重置），供活動以自然月計算的卡使用。</p>
+
+<h2 class="sec" id="alloc">4. 回饋分配演算法 <span class="tag">allocate()</span></h2>
+<p>輸入：金額、類型、卡片、所有規則、日期、<b>該卡先前的交易</b>。輸出：<code>allocations[]</code>、取整後 <code>reward</code>、未回饋金額。</p>
+<div class="card">
+<div class="mermaid">
+flowchart TD
+  S(["allocate(amount, category, card, date)"]) --> Neg{"amount < 0 ?"}
+  Neg -- 是（退款） --> N1["取第一條符合規則<br/>無則取一般消費規則"]
+  N1 --> N2["spend = 負值, reward = amount×rate<br/>→ 回補額度"]
+  N2 --> End
+  Neg -- 否 --> L1["designated = 該卡此類型<br/>且 enabled、在有效期內<br/>依 priority 排序"]
+  L1 --> L2["fallback = 該卡「一般消費」規則<br/>（類型本身為一般消費時為空）"]
+  L2 --> Loop1{"left > 0 且還有指定規則?"}
+  Loop1 -- 是 --> T1["take = min(left, 規則剩餘額度)"]
+  T1 --> T2["記錄 {ruleId, spend:take, reward:take×rate}<br/>left -= take"]
+  T2 --> Loop1
+  Loop1 -- 否 --> Loop2{"left > 0 且還有一般規則?"}
+  Loop2 -- 是 --> F1["同上，標記 usedFallback"]
+  F1 --> Loop2
+  Loop2 -- 否 --> Sum["raw = Σ reward<br/>reward = round/floor(raw)"]
+  Sum --> End(["回傳 allocations, reward, unrewarded"])
+</div>
+</div>
+<h3>範例：餐飲 3% 上限 1,000，一般 0.5%（本期已用餐飲 700）</h3>
+<pre><code>刷 500 元（餐飲）
+  ├─ 餐飲規則剩餘 300 → 300 × 3%   = 9.0
+  └─ 超出 200 → 一般消費 200 × 0.5% = 1.0
+reward = round(10.0) = 10</code></pre>
+<div class="callout">已用額度（<code>usedSpend</code>）= 規則週期內所有交易的 <code>allocations.filter(ruleId).spend</code> 之和。退款的 spend 為負，所以自然回補。</div>
+
+<h2 class="sec" id="recommend">5. 推薦演算法 <span class="tag">recommend()</span></h2>
+<div class="card">
+<div class="mermaid">
+flowchart TD
+  I["輸入: categoryId, amount(未填用 1000 試算), date, channel"] --> E["對每張未封存的卡"]
+  E --> A["呼叫 allocate() 得預估回饋"]
+  A --> M["計算: remainingByRule, capped,<br/>channelHit, channelMiss, fallbackRule"]
+  M --> Sort["排序"]
+  Sort --> S1["① channelMiss 的排後面<br/>(類型對但通路不在清單)"]
+  S1 --> S2["② 預估回饋 高→低"]
+  S2 --> S3["③ channelHit 優先"]
+  S3 --> S4["④ 剩餘額度 大→小<br/>(保留額度大的卡)"]
+  S4 --> S5["⑤ 卡片 sortOrder"]
+  S5 --> Out["顯示: 卡名/回饋/有效回饋率<br/>規則通路 chips + 筆記 + 警示"]
+</div>
+</div>
+<table class="card">
+<tr><th>狀態</th><th>UI 呈現</th></tr>
+<tr><td>該卡無此類型規則</td><td>「無『X』回饋，以一般消費 N% 計」</td></tr>
+<tr><td><code>capped</code>（額度用完）</td><td>「已達上限，以一般消費 N% 計」</td></tr>
+<tr><td><code>usedFallback</code>（部分超額）</td><td>「部分金額超過上限」＋拆分 <code>$300 @3% + $200 @0.5%</code></td></tr>
+<tr><td><code>channelMiss</code></td><td>「通路不在此卡清單內」，排序下沉</td></tr>
+<tr><td><code>channelHit</code></td><td>通路 chip 綠色高亮 + 「通路符合」</td></tr>
+</table>
+<p>通路比對：不分大小寫，雙向 <code>includes</code>（輸入「全聯」可命中「全聯福利中心」，反之亦然）。輸入通路若<b>唯一</b>對應單一類型，自動切換類型。</p>
+
+<h2 class="sec" id="write">6. 寫入與重算</h2>
+<p>因為額度是依時間順序吃掉的，任何「新增 / 編輯 / 刪除交易」或「修改規則」都會影響之後的交易，所以必須重算。</p>
+<div class="card">
+<div class="mermaid">
+sequenceDiagram
+  participant UI
+  participant DB as db.ts
+  participant R as rewards.ts
+  participant IDB as IndexedDB
+  UI->>DB: saveTransaction(txn, previous?)
+  DB->>IDB: txns.put(txn)
+  DB->>DB: from = 同卡且舊日期較早 ? 舊日期 : 新日期
+  DB->>DB: recomputeCard(cardId, from)
+  DB->>IDB: 讀 card / rules / txns
+  DB->>R: reallocate(card, rules, txns, from)
+  Note over R: 依 (date, createdAt) 排序<br/>from 之前的交易視為已定案<br/>之後逐筆 allocate()
+  R-->>DB: 變動的交易
+  DB->>IDB: txns.bulkPut(changed)
+  IDB-->>UI: useLiveQuery 觸發重繪
+  opt 換卡
+    DB->>DB: 另對舊卡 recomputeCard(舊日期)
+  end
+</div>
+</div>
+<table class="card">
+<tr><th>操作</th><th>重算範圍</th></tr>
+<tr><td>新增交易</td><td>該卡從該交易日期起</td></tr>
+<tr><td>編輯（改日期 / 金額 / 類型）</td><td>該卡從 min(舊日期, 新日期) 起</td></tr>
+<tr><td>編輯（換卡）</td><td>新卡從新日期起 + 舊卡從舊日期起</td></tr>
+<tr><td>刪除交易</td><td>該卡從該交易日期起（讓後面的交易拿回額度）</td></tr>
+<tr><td>儲存卡片 / 規則</td><td>從所有規則「目前週期起點」中最早者起；歷史週期保留快照不動</td></tr>
+</table>
+
+<h2 class="sec" id="ui">7. 畫面與導覽</h2>
+<div class="card">
+<div class="mermaid">
+stateDiagram-v2
+  [*] --> 總覽
+  總覽 --> 紀錄: Tab
+  總覽 --> 卡片庫: Tab
+  總覽 --> 設定: Tab
+  紀錄 --> 總覽
+  卡片庫 --> 總覽
+  設定 --> 總覽
+  總覽 --> 新增消費: FAB +
+  紀錄 --> 新增消費: FAB +
+  卡片庫 --> 新增消費: FAB +
+  設定 --> 新增消費: FAB +
+  紀錄 --> 編輯消費: 點交易
+  新增消費 --> 儲存
+  編輯消費 --> 儲存
+  編輯消費 --> 刪除
+  儲存 --> [*]
+  刪除 --> [*]
+  總覽 --> 卡片編輯: 點卡片區塊
+  卡片庫 --> 卡片編輯: 點卡片 / 新增
+  卡片編輯 --> 規則編輯: 新增 / 點規則
+  規則編輯 --> 卡片編輯: 完成
+  卡片編輯 --> 卡片庫: 儲存 / 返回
+</div>
+</div>
+<table class="card">
+<tr><th>畫面</th><th>內容</th></tr>
+<tr><td>總覽</td><td>本月消費/回饋/回饋率；各卡本期區間、距離重置天數、本期回饋；每條規則一條 Bar（≥80% 黃、100% 灰「已滿」）；備份與到期提醒橫幅。</td></tr>
+<tr><td>紀錄（月為單位）</td><td>月份切換、近 6 個月回饋長條圖（點擊跳月）、卡片篩選、各卡片 / 各類型彙總（消費與回饋）、依日期分組明細。</td></tr>
+<tr><td>卡片庫</td><td>卡片列表、通路反查、新增卡片；封存區。</td></tr>
+<tr><td>卡片編輯</td><td>基本資料、結帳日(1–31)、取整方式、顏色；規則清單（可複製）；封存 / 永久刪除。</td></tr>
+<tr><td>規則編輯</td><td>類型下拉（含「＋新增類型」）、回饋 %、消費上限、重置方式、通路 tag、筆記；進階：活動期間、優先順序、啟用。</td></tr>
+<tr><td>設定</td><td>類型管理（改名 / 換色 / 排序 / 封存 / 刪除）、匯出匯入、持久化儲存、清除資料。</td></tr>
+</table>
+<h3>iPhone 16 Pro 適配</h3>
+<table class="card">
+<tr><th>項目</th><th>做法</th></tr>
+<tr><td>邏輯解析度</td><td>402 × 874 pt（DPR 3）。<code>--app-w: 402px</code> 為最大寬度。</td></tr>
+<tr><td>Dynamic Island / Home Indicator</td><td><code>viewport-fit=cover</code> + <code>env(safe-area-inset-*)</code>；Tab Bar、Sheet、Overlay 皆吃安全區。</td></tr>
+<tr><td>防自動縮放</td><td>所有輸入框 <code>font-size ≥ 16px</code>。</td></tr>
+<tr><td>觸控目標</td><td>按鈕最小 44×44 pt。</td></tr>
+<tr><td>桌面開發</td><td>寬度 ≥ 640px 時以 402×874 圓角外框模擬手機。</td></tr>
+<tr><td>深色模式</td><td><code>prefers-color-scheme</code>，色票用 CSS 變數。</td></tr>
+<tr><td>鍵盤</td><td>金額用 <code>inputMode="decimal"</code>；通路 <code>datalist</code> 自動完成。</td></tr>
+</table>
+
+<h2 class="sec" id="txn-flow">8. 新增消費流程</h2>
+<div class="card">
+<div class="mermaid">
+flowchart TD
+  Open["點 +"] --> Cat["選類型 chip"]
+  Cat --> Amt["輸入金額（可切「退款」）"]
+  Amt --> Ch["輸入通路（選填）"]
+  Ch --> Auto{"通路唯一對應單一類型?"}
+  Auto -- 是 --> SwCat["自動切換類型"]
+  Auto -- 否 --> Live
+  SwCat --> Live["即時 recommend()"]
+  Cat --> Live
+  Amt --> Live
+  Live --> Show["顯示排名前 3 張卡<br/>(可展開全部)"]
+  Show --> Pick{"使用者手動選卡?"}
+  Pick -- 否 --> Def["預設第 1 名"]
+  Pick -- 是 --> Man["使用選擇的卡"]
+  Def --> Save["記一筆 → saveTransaction()"]
+  Man --> Save
+  Save --> Re["重算 allocations / reward"]
+  Re --> Done["Bar 與紀錄即時更新"]
+</div>
+</div>
+<div class="callout warn"><b>確認機制：</b>每張推薦卡直接列出該類型規則的<b>通路清單與筆記</b>，輸入通路後命中者綠色高亮，不符者警示——避免「類型對但通路不符」被誤刷。</div>
+
+<h2 class="sec" id="pwa">9. PWA 與儲存</h2>
+<div class="card">
+<div class="mermaid">
+flowchart LR
+  Safari["Safari 開啟網址"] --> Add["分享 → 加入主畫面"]
+  Add --> Standalone["以 standalone 模式啟動<br/>(無網址列)"]
+  Standalone --> Persist["navigator.storage.persist()"]
+  Standalone --> SW["Service Worker precache 全部資源"]
+  SW --> Off["離線可用"]
+  Persist --> Keep["降低被系統清除機率"]
+  Standalone --> ITP["主畫面 Web App 不受<br/>Safari 7 天未使用清除規則影響"]
+</div>
+</div>
+<table class="card">
+<tr><th>項目</th><th>說明</th></tr>
+<tr><td>資料何時會消失</td><td>從主畫面刪除 App、清除 Safari 網站資料、裝置空間嚴重不足。<b>重新開機不會重置。</b></td></tr>
+<tr><td>更新策略</td><td><code>registerType: 'autoUpdate'</code>；推新版後下次開啟自動更新。</td></tr>
+<tr><td>Base path</td><td>GitHub Pages 專案頁為 <code>/&lt;repo&gt;/</code>，由 CI 注入 <code>VITE_BASE</code>；manifest 的 <code>start_url</code>/<code>scope</code> 同步使用。</td></tr>
+<tr><td>非 HTTPS 環境</td><td><code>crypto.randomUUID</code> 不存在時改用 fallback uid。</td></tr>
+</table>
+
+<h2 class="sec" id="backup">10. 備份與還原</h2>
+<div class="card">
+<div class="mermaid">
+flowchart TD
+  Exp["匯出"] --> J["序列化四張表為 BackupFile v1"]
+  J --> Can{"navigator.canShare(files)?"}
+  Can -- 是 --> Share["iOS 分享選單 → 存到「檔案」/ iCloud Drive"]
+  Can -- 否 --> Dl["以 a 標籤 download 屬性下載"]
+  Share --> Mark["localStorage 記錄最後備份時間"]
+  Dl --> Mark
+  Imp["匯入"] --> Parse["JSON.parse + isBackupFile 驗證"]
+  Parse -->|格式錯| Err["提示失敗，不動資料"]
+  Parse -->|OK| Conf["顯示筆數並確認覆蓋"]
+  Conf --> Tx["單一 transaction: 清空 → 寫入"]
+  Tx --> Live["useLiveQuery 重繪"]
+  Remind["有交易且 >7 天未備份"] --> Banner["總覽顯示備份橫幅"]
+</div>
+</div>
+
+<h2 class="sec" id="deploy">11. 建置與部署</h2>
+<div class="card">
+<div class="mermaid">
+flowchart LR
+  Push["git push main"] --> CI["GitHub Actions"]
+  CI --> I["npm ci"]
+  I --> T["npm test (vitest)"]
+  T --> B["npm run build<br/>VITE_BASE=/repo/"]
+  B --> Up["upload-pages-artifact (dist)"]
+  Up --> Dep["deploy-pages"]
+  Dep --> URL["https://user.github.io/repo/"]
+</div>
+</div>
+<p>詳細逐步操作請見 <code>deploy-guide.html</code>。</p>
+
+<h2 class="sec" id="test">12. 測試</h2>
+<table class="card">
+<tr><th>層級</th><th>檔案</th><th>涵蓋</th></tr>
+<tr><td>單元</td><td><code>src/lib/rewards.test.ts</code></td><td>帳單週期（含月底、跨年）、指定取代一般、超額回退、換週期重置、退款、重算、推薦排序。</td></tr>
+<tr><td>整合</td><td><code>src/db.test.ts</code></td><td>fake-indexeddb：新增拆分、刪除還額度、編輯金額/日期/換卡、跨結帳日、調整規則重算、備份往返。</td></tr>
+<tr><td>E2E</td><td><code>scripts/e2e.mjs</code></td><td>Playwright 402×874：建卡 / 規則 / 內聯新增類型、通路反查、推薦（通路與筆記）、總覽 Bar、超額拆分、退款、月份切換、編輯刪除、重新整理保留、離線、深色、無 console 錯誤。</td></tr>
+</table>
+<pre><code>npm test                         # 單元 + 整合
+npm run build &amp;&amp; npm run preview -- --port 4173
+node scripts/e2e.mjs             # E2E（另開終端）</code></pre>
+
+<h2 class="sec" id="edge">13. 邊界案例</h2>
+<table class="card">
+<tr><th>案例</th><th>處理</th></tr>
+<tr><td>結帳日 29–31</td><td><code>clampDate</code> 取當月最後一天。</td></tr>
+<tr><td>結帳日當天消費</td><td>算本期。</td></tr>
+<tr><td>規則被改 / 刪</td><td>儲存時重算目前週期之後；歷史週期不動。</td></tr>
+<tr><td>規則有活動期間</td><td>交易日在期間外該規則不生效（走一般消費）。</td></tr>
+<tr><td>類型被規則使用</td><td>只能封存；封存類型仍顯示於既有規則 / 交易。</td></tr>
+<tr><td>卡片無「一般消費」規則</td><td>超額部分 0% 回饋，UI 標示 <code>@0%</code>；卡片編輯頁提示建議新增。</td></tr>
+<tr><td>退款</td><td>負 spend 回補額度，回饋為負。</td></tr>
+<tr><td>同日多筆</td><td>以 <code>createdAt</code> 決定順序。</td></tr>
+<tr><td>時區</td><td>全部使用本地日期字串，不用 UTC timestamp。</td></tr>
+<tr><td>換月顯示</td><td>紀錄頁以消費日的自然月分組；與「帳單週期」是不同概念，兩者並存。</td></tr>
+</table>
+
+<h2 class="sec" id="limits">14. 已知限制</h2>
+<ul>
+  <li>以<b>消費日</b>歸屬週期；銀行實際以<b>入帳日</b>計，跨結帳日邊界可能差一期。</li>
+  <li>無雲端同步；換機需用 JSON 備份。</li>
+  <li>通路比對為字串包含，不支援 MCC 碼。</li>
+  <li>回饋以規則 % 估算，不處理銀行端的排除項（需看規則筆記）。</li>
+  <li>Safari 對 PWA 儲存無硬性保證；請定期匯出備份。</li>
+</ul>
+</main>
+</div>
+<script>
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  mermaid.initialize({ startOnLoad: true, theme: dark ? 'dark' : 'default', flowchart: { useMaxWidth: true, htmlLabels: true } });
+</script>
+</body>
+</html>

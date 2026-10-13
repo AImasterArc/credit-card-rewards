@@ -1,0 +1,8 @@
+node_modules
+dist
+dev-dist
+*.local
+.DS_Store
+e2e-shots
+e2e-log.txt
+build-log.txt
