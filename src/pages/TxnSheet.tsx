@@ -2,18 +2,20 @@ import { useMemo, useState } from 'react';
 import { useData } from '../data';
 import { deleteTransaction, saveTransaction } from '../db';
 import { today } from '../lib/date';
-import { money, num, pct, uid } from '../lib/format';
+import { money, pct, uid } from '../lib/format';
 import { channelMatches, recommend, type Recommendation } from '../lib/rewards';
-import type { Transaction } from '../types';
+import type { ChannelType, Transaction } from '../types';
+import { CHANNEL_TYPES, CHANNEL_TYPE_COLORS } from '../types';
 import { Dot, Icon, Sheet } from '../components/ui';
 
 const PREVIEW_AMOUNT = 1000;
 
 export function TxnSheet({ editing, onClose }: { editing?: Transaction; onClose: () => void }) {
-  const { categories, cards, rules, txns, categoryMap } = useData();
-  const activeCategories = categories.filter((c) => !c.archived || c.id === editing?.categoryId);
+  const { cards, rules, txns } = useData();
 
-  const [categoryId, setCategoryId] = useState(editing?.categoryId ?? activeCategories[0]?.id ?? '');
+  const [channelTypes, setChannelTypes] = useState<ChannelType[]>(
+    editing?.channelTypes?.length ? editing.channelTypes : ['實體'],
+  );
   const [amountStr, setAmountStr] = useState(editing ? String(Math.abs(editing.amount)) : '');
   const [isRefund, setIsRefund] = useState(editing ? editing.amount < 0 : false);
   const [channel, setChannel] = useState(editing?.channel ?? '');
@@ -36,7 +38,7 @@ export function TxnSheet({ editing, onClose }: { editing?: Transaction; onClose:
   const recs = useMemo(
     () =>
       recommend({
-        categoryId,
+        channelTypes,
         amount: amount > 0 ? amount : PREVIEW_AMOUNT,
         date,
         channel,
@@ -44,22 +46,24 @@ export function TxnSheet({ editing, onClose }: { editing?: Transaction; onClose:
         rules,
         txns: txns.filter((t) => t.id !== editing?.id),
       }),
-    [categoryId, amount, date, channel, cards, rules, txns, editing?.id],
+    [channelTypes, amount, date, channel, cards, rules, txns, editing?.id],
   );
 
   const selectedCardId = pickedCardId ?? recs[0]?.card.id ?? null;
   const visibleRecs = showAll ? recs : recs.slice(0, 3);
   const selectedHidden = !showAll && selectedCardId && !visibleRecs.some((r) => r.card.id === selectedCardId);
 
-  /** 輸入通路時，若只對應到單一類型就自動切換 */
-  const onChannelChange = (value: string): void => {
-    setChannel(value);
-    const exact = rules.filter((r) => r.channels.some((c) => c.toLowerCase() === value.trim().toLowerCase()));
-    const cats = new Set(exact.map((r) => r.categoryId));
-    if (cats.size === 1) setCategoryId([...cats][0]);
+  const toggleChannelType = (t: ChannelType): void => {
+    setChannelTypes((prev) => {
+      if (prev.includes(t)) {
+        if (prev.length === 1) return prev; // 至少保留一項
+        return prev.filter((x) => x !== t);
+      }
+      return [...prev, t];
+    });
   };
 
-  const canSave = amount > 0 && !!selectedCardId && !!categoryId && !saving;
+  const canSave = amount > 0 && !!selectedCardId && channelTypes.length > 0 && !saving;
 
   const onSave = async (): Promise<void> => {
     if (!canSave || !selectedCardId) return;
@@ -67,7 +71,7 @@ export function TxnSheet({ editing, onClose }: { editing?: Transaction; onClose:
     const txn: Transaction = {
       id: editing?.id ?? uid(),
       cardId: selectedCardId,
-      categoryId,
+      channelTypes,
       amount: signedAmount,
       date,
       channel: channel.trim(),
@@ -86,6 +90,8 @@ export function TxnSheet({ editing, onClose }: { editing?: Transaction; onClose:
     onClose();
   };
 
+  const typesSummary = channelTypes.join('、');
+
   return (
     <Sheet
       title={editing ? '編輯消費' : '新增消費'}
@@ -103,18 +109,22 @@ export function TxnSheet({ editing, onClose }: { editing?: Transaction; onClose:
         </div>
       }
     >
-      <label className="field-label">消費類型</label>
+      <label className="field-label">通路類型（可複選）</label>
       <div className="chips">
-        {activeCategories.map((c) => (
-          <button
-            key={c.id}
-            className={`chip ${c.id === categoryId ? 'active' : ''}`}
-            style={c.id === categoryId ? { background: c.color, borderColor: c.color } : undefined}
-            onClick={() => setCategoryId(c.id)}
-          >
-            {c.name}
-          </button>
-        ))}
+        {CHANNEL_TYPES.map((t) => {
+          const active = channelTypes.includes(t);
+          return (
+            <button
+              key={t}
+              type="button"
+              className={`chip ${active ? 'active' : ''}`}
+              style={active ? { background: CHANNEL_TYPE_COLORS[t], borderColor: CHANNEL_TYPE_COLORS[t] } : undefined}
+              onClick={() => toggleChannelType(t)}
+            >
+              {t}
+            </button>
+          );
+        })}
       </div>
 
       <div className="amount-row">
@@ -134,13 +144,13 @@ export function TxnSheet({ editing, onClose }: { editing?: Transaction; onClose:
 
       <div className="grid-2">
         <div>
-          <label className="field-label">通路（選填）</label>
+          <label className="field-label">特定店家 / 通路（選填）</label>
           <input
             className="input"
             list="channel-list"
-            placeholder="例：全聯"
+            placeholder="例：全聯、Uber Eats"
             value={channel}
-            onChange={(e) => onChannelChange(e.target.value)}
+            onChange={(e) => setChannel(e.target.value)}
           />
           <datalist id="channel-list">
             {allChannels.map((c) => (
@@ -149,14 +159,22 @@ export function TxnSheet({ editing, onClose }: { editing?: Transaction; onClose:
           </datalist>
         </div>
         <div>
-          <label className="field-label">日期</label>
-          <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value || today())} />
+          <label className="field-label">消費日期</label>
+          <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </div>
       </div>
 
-      <label className="field-label">
-        推薦刷卡 {amount <= 0 && <span className="muted">（以 {num(PREVIEW_AMOUNT)} 元試算）</span>}
-      </label>
+      <div className="section-head mt">
+        <label className="field-label" style={{ margin: 0 }}>
+          推薦信用卡（{typesSummary}，{amount > 0 ? `刷 $${amount}` : '試算 $1,000'}）
+        </label>
+        {pickedCardId && (
+          <button className="btn-text small" onClick={() => setPickedCardId(null)}>
+            改回推薦第一名
+          </button>
+        )}
+      </div>
+
       {recs.length === 0 && <p className="muted small">尚無卡片，請先到卡片庫新增。</p>}
       <div className="rec-list">
         {visibleRecs.map((r, i) => (
@@ -166,7 +184,7 @@ export function TxnSheet({ editing, onClose }: { editing?: Transaction; onClose:
             rank={i + 1}
             selected={r.card.id === selectedCardId}
             channel={channel}
-            categoryName={categoryMap.get(categoryId)?.name ?? ''}
+            typesSummary={typesSummary}
             onSelect={() => setPickedCardId(r.card.id)}
           />
         ))}
@@ -191,23 +209,23 @@ function RecItem({
   rank,
   selected,
   channel,
-  categoryName,
+  typesSummary,
   onSelect,
 }: {
   rec: Recommendation;
   rank: number;
   selected: boolean;
   channel: string;
-  categoryName: string;
+  typesSummary: string;
   onSelect: () => void;
 }) {
   const { ruleMap } = useData();
   const { card, reward, effectiveRate, rules, hasDesignated, capped, usedFallback, fallbackRule, channelHit, channelMiss, allocation } = rec;
 
   const warnings: string[] = [];
-  if (!hasDesignated) warnings.push(fallbackRule ? `無「${categoryName}」回饋，以一般消費 ${pct(fallbackRule.rate)} 計` : `無「${categoryName}」回饋`);
-  else if (capped) warnings.push(fallbackRule ? `已達上限，以一般消費 ${pct(fallbackRule.rate)} 計` : '已達上限');
-  else if (usedFallback) warnings.push('部分金額超過上限');
+  if (!hasDesignated) warnings.push(fallbackRule ? `無指定「${typesSummary}」加碼，以全通路 ${pct(fallbackRule.rate)} 計` : `無「${typesSummary}」回饋`);
+  else if (capped) warnings.push(fallbackRule ? `已達上限，超出以全通路 ${pct(fallbackRule.rate)} 計` : '已達上限');
+  else if (usedFallback) warnings.push('部分金額超過上限，改用全通路保底計算');
   if (channelMiss) warnings.push('通路不在此卡清單內');
 
   return (
@@ -226,7 +244,7 @@ function RecItem({
         <div className="rec-meta small">
           {rules.map((r) => (
             <span key={r.id} className="tag">
-              {pct(r.rate)} · {r.capAmount == null ? '無上限' : `剩 ${money(rec.remainingByRule[r.id] ?? 0)}`}
+              {(r.channelTypes ?? []).join('/')} {pct(r.rate)} · {r.capAmount == null ? '無上限' : `剩 ${money(rec.remainingByRule[r.id] ?? 0)}`}
             </span>
           ))}
         </div>

@@ -1,12 +1,7 @@
 import { useState, type KeyboardEvent } from 'react';
-import { useData } from '../data';
-import { db } from '../db';
-import { uid } from '../lib/format';
-import type { RewardRule } from '../types';
+import type { ChannelType, RewardRule } from '../types';
+import { CHANNEL_TYPES, CHANNEL_TYPE_COLORS } from '../types';
 import { Icon, Segmented, Sheet } from '../components/ui';
-
-const NEW_CATEGORY = '__new__';
-const RANDOM_COLORS = ['#ff9500', '#34c759', '#007aff', '#af52de', '#ff2d55', '#5ac8fa', '#ffcc00', '#a2845e', '#5856d6', '#30b0c7'];
 
 interface Props {
   rule: RewardRule;
@@ -17,16 +12,30 @@ interface Props {
 }
 
 export function RuleSheet({ rule, isNew, onSave, onDelete, onClose }: Props) {
-  const { categories } = useData();
-  const [draft, setDraft] = useState<RewardRule>(rule);
+  const [draft, setDraft] = useState<RewardRule>(() => ({
+    ...rule,
+    channelTypes: rule.channelTypes?.length ? rule.channelTypes : ['實體'],
+  }));
   const [rateStr, setRateStr] = useState(String(rule.rate));
   const [capStr, setCapStr] = useState(rule.capAmount == null ? '' : String(rule.capAmount));
   const [channelInput, setChannelInput] = useState('');
-  const [newCatName, setNewCatName] = useState('');
-  const [addingCat, setAddingCat] = useState(false);
 
   const patch = (p: Partial<RewardRule>): void => setDraft((d) => ({ ...d, ...p }));
-  const selectable = categories.filter((c) => !c.archived || c.id === draft.categoryId);
+
+  const toggleChannelType = (t: ChannelType): void => {
+    const set = new Set(draft.channelTypes);
+    if (set.has(t)) set.delete(t);
+    else set.add(t);
+    patch({ channelTypes: [...set] });
+  };
+
+  const selectAllChannelTypes = (): void => {
+    if (draft.channelTypes.length === CHANNEL_TYPES.length) {
+      patch({ channelTypes: ['實體'] });
+    } else {
+      patch({ channelTypes: [...CHANNEL_TYPES] });
+    }
+  };
 
   const addChannels = (): void => {
     const items = channelInput
@@ -45,24 +54,8 @@ export function RuleSheet({ rule, isNew, onSave, onDelete, onClose }: Props) {
     }
   };
 
-  const createCategory = async (): Promise<void> => {
-    const name = newCatName.trim();
-    if (!name) return;
-    const id = uid();
-    await db.categories.add({
-      id,
-      name,
-      color: RANDOM_COLORS[categories.length % RANDOM_COLORS.length],
-      sortOrder: Math.max(0, ...categories.map((c) => c.sortOrder)) + 1,
-      archived: false,
-    });
-    patch({ categoryId: id });
-    setNewCatName('');
-    setAddingCat(false);
-  };
-
   const rate = Number(rateStr);
-  const valid = !!draft.categoryId && Number.isFinite(rate) && rate >= 0;
+  const valid = (draft.channelTypes?.length ?? 0) > 0 && Number.isFinite(rate) && rate >= 0;
 
   const submit = (): void => {
     if (!valid) return;
@@ -72,14 +65,16 @@ export function RuleSheet({ rule, isNew, onSave, onDelete, onClose }: Props) {
       : draft.channels;
     onSave({
       ...draft,
+      channelTypes: draft.channelTypes,
       rate,
       capAmount: cap != null && Number.isFinite(cap) ? cap : null,
       channels: pending,
       note: draft.note.trim(),
-      validFrom: draft.validFrom || undefined,
       validTo: draft.validTo || undefined,
     });
   };
+
+  const isAll = draft.channelTypes.length === CHANNEL_TYPES.length;
 
   return (
     <Sheet
@@ -98,36 +93,32 @@ export function RuleSheet({ rule, isNew, onSave, onDelete, onClose }: Props) {
         </div>
       }
     >
-      <label className="field-label">消費類型</label>
-      <select
-        className="input"
-        value={addingCat ? NEW_CATEGORY : draft.categoryId}
-        onChange={(e) => {
-          if (e.target.value === NEW_CATEGORY) setAddingCat(true);
-          else {
-            setAddingCat(false);
-            patch({ categoryId: e.target.value });
-          }
-        }}
-      >
-        <option value="" disabled>
-          請選擇
-        </option>
-        {selectable.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.name}
-          </option>
-        ))}
-        <option value={NEW_CATEGORY}>＋ 新增類型…</option>
-      </select>
-      {addingCat && (
-        <div className="row gap mt">
-          <input className="input grow" autoFocus placeholder="新類型名稱" value={newCatName} onChange={(e) => setNewCatName(e.target.value)} />
-          <button className="btn-pill" onClick={createCategory} disabled={!newCatName.trim()}>
-            新增
-          </button>
-        </div>
-      )}
+      <div className="row justify-between align-center">
+        <label className="field-label" style={{ margin: 0 }}>通路類型（可複選）</label>
+        <button type="button" className="link-btn small" onClick={selectAllChannelTypes}>
+          {isAll ? '取消全選' : '全選（全通路/一般消費）'}
+        </button>
+      </div>
+
+      <div className="chips mt">
+        {CHANNEL_TYPES.map((t) => {
+          const active = draft.channelTypes.includes(t);
+          return (
+            <button
+              key={t}
+              type="button"
+              className={`chip ${active ? 'active' : ''}`}
+              style={active ? { background: CHANNEL_TYPE_COLORS[t], borderColor: CHANNEL_TYPE_COLORS[t] } : undefined}
+              onClick={() => toggleChannelType(t)}
+            >
+              {t}
+            </button>
+          );
+        })}
+      </div>
+      <p className="hint" style={{ marginTop: 4 }}>
+        {isAll ? '全選代表全通路（相當於一般消費保底）' : draft.channelTypes.length === 0 ? '請至少選取一個通路類型' : `適用：${draft.channelTypes.join('、')}`}
+      </p>
 
       <div className="grid-2">
         <div>
@@ -192,19 +183,11 @@ export function RuleSheet({ rule, isNew, onSave, onDelete, onClose }: Props) {
 
       <details className="advanced">
         <summary>進階設定</summary>
-        <div className="grid-2">
-          <div>
-            <label className="field-label">活動開始</label>
-            <input className="input" type="date" value={draft.validFrom ?? ''} onChange={(e) => patch({ validFrom: e.target.value })} />
-          </div>
-          <div>
-            <label className="field-label">活動結束</label>
-            <input className="input" type="date" value={draft.validTo ?? ''} onChange={(e) => patch({ validTo: e.target.value })} />
-          </div>
+        <div>
+          <label className="field-label">活動結束</label>
+          <input className="input" type="date" value={draft.validTo ?? ''} onChange={(e) => patch({ validTo: e.target.value })} />
         </div>
-        <label className="field-label">優先順序（同卡同類型多條規則時，數字小的先用）</label>
-        <input className="input" inputMode="numeric" value={draft.priority} onChange={(e) => patch({ priority: Number(e.target.value.replace(/\D/g, '')) || 0 })} />
-        <label className="toggle-row">
+        <label className="toggle-row" style={{ marginTop: 12 }}>
           <span>啟用</span>
           <input type="checkbox" className="switch" checked={draft.enabled} onChange={(e) => patch({ enabled: e.target.checked })} />
         </label>

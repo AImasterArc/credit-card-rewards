@@ -1,17 +1,12 @@
 import Dexie, { type Table } from 'dexie';
 import type { Card, Category, RewardRule, Transaction, BackupFile } from './types';
-import { GENERAL_CATEGORY_ID, reallocate, rulePeriod } from './lib/rewards';
+import { reallocate, rulePeriod } from './lib/rewards';
 import { today } from './lib/date';
 
 const SEED_CATEGORIES: Category[] = [
-  { id: GENERAL_CATEGORY_ID, name: '一般消費', color: '#8e8e93', sortOrder: 0, archived: false },
-  { id: 'designated', name: '指定通路', color: '#ff9500', sortOrder: 1, archived: false },
-  { id: 'overseas', name: '國外消費', color: '#007aff', sortOrder: 2, archived: false },
-  { id: 'mobilepay', name: '行動支付', color: '#34c759', sortOrder: 3, archived: false },
-  { id: 'online', name: '網購', color: '#af52de', sortOrder: 4, archived: false },
-  { id: 'dining', name: '餐飲', color: '#ff2d55', sortOrder: 5, archived: false },
-  { id: 'transport', name: '交通', color: '#5ac8fa', sortOrder: 6, archived: false },
-  { id: 'bills', name: '保費 / 繳稅', color: '#a2845e', sortOrder: 7, archived: false },
+  { id: '實體', name: '實體', color: '#007aff', sortOrder: 0, archived: false },
+  { id: '網路', name: '網路', color: '#af52de', sortOrder: 1, archived: false },
+  { id: '行動支付', name: '行動支付', color: '#34c759', sortOrder: 2, archived: false },
 ];
 
 class AppDb extends Dexie {

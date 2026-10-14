@@ -4,11 +4,9 @@ import { channelMatches } from '../lib/rewards';
 import { today } from '../lib/date';
 import { money, pct } from '../lib/format';
 import { isRuleActive } from '../lib/rewards';
-import { Dot } from '../components/ui';
-
 /** 通路反查：輸入通路名稱，列出所有卡片中對應的規則，依回饋率排序 */
 export function ChannelLookup() {
-  const { rules, cardMap, categoryMap } = useData();
+  const { rules, cardMap } = useData();
   const [q, setQ] = useState('');
   const t = today();
 
@@ -29,14 +27,15 @@ export function ChannelLookup() {
       {q.trim() && hits.length === 0 && <p className="muted small mt">沒有卡片的規則包含這個通路</p>}
       {hits.map((r) => {
         const card = cardMap.get(r.cardId)!;
-        const cat = categoryMap.get(r.categoryId);
+        const types = r.channelTypes?.length ? r.channelTypes : ['實體'];
+        const typeLabel = types.length === 3 ? '全通路' : types.join(' · ');
         return (
           <div className="breakdown-row" key={r.id}>
             <span className="card-chip sm" style={{ background: card.color }} />
             <div className="grow">
               <div>{card.name}</div>
               <div className="muted small">
-                <Dot color={cat?.color ?? '#999'} size={8} /> {cat?.name} · {r.capAmount == null ? '無上限' : `上限 ${money(r.capAmount)}`}
+                {typeLabel} · {r.capAmount == null ? '無上限' : `上限 ${money(r.capAmount)}`}
               </div>
               {r.note && <div className="rec-note small">{r.note}</div>}
             </div>

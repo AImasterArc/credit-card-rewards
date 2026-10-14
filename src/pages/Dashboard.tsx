@@ -2,7 +2,8 @@ import { useData } from '../data';
 import { diffDays, formatMd, getBillingCycle, today } from '../lib/date';
 import { money, pct } from '../lib/format';
 import { isRuleActive, usedSpend } from '../lib/rewards';
-import type { Card } from '../types';
+import type { Card, ChannelType } from '../types';
+import { CHANNEL_TYPES, CHANNEL_TYPE_COLORS } from '../types';
 import { Dot, Empty, ProgressBar } from '../components/ui';
 import { BackupReminder } from './Settings';
 
@@ -53,7 +54,7 @@ export function Dashboard({ onOpenCard, onGoCards }: { onOpenCard: (id: string) 
 }
 
 function ExpiryReminder() {
-  const { rules, cardMap, categoryMap } = useData();
+  const { rules, cardMap } = useData();
   const t = today();
   const soon = rules
     .filter((r) => r.enabled && r.validTo && r.validTo >= t && diffDays(t, r.validTo) <= 7 && !cardMap.get(r.cardId)?.archived)
@@ -61,25 +62,24 @@ function ExpiryReminder() {
   if (soon.length === 0) return null;
   return (
     <div className="banner column">
-      {soon.map((r) => (
-        <span key={r.id}>
-          {cardMap.get(r.cardId)?.name} 的「{categoryMap.get(r.categoryId)?.name} {pct(r.rate)}」{diffDays(t, r.validTo!) === 0 ? '今天' : `${diffDays(t, r.validTo!)} 天後`}到期
-        </span>
-      ))}
+      {soon.map((r) => {
+        const label = r.channelTypes?.length === 3 ? '全通路' : (r.channelTypes ?? ['實體']).join('/');
+        return (
+          <span key={r.id}>
+            {cardMap.get(r.cardId)?.name} 的「{label} {pct(r.rate)}」{diffDays(t, r.validTo!) === 0 ? '今天' : `${diffDays(t, r.validTo!)} 天後`}到期
+          </span>
+        );
+      })}
     </div>
   );
 }
 
 function CardUsage({ card, todayYmd, onOpen }: { card: Card; todayYmd: string; onOpen: () => void }) {
-  const { rules, txns, categoryMap } = useData();
+  const { rules, txns } = useData();
   const cardTxns = txns.filter((x) => x.cardId === card.id);
   const cardRules = rules
     .filter((r) => r.cardId === card.id && isRuleActive(r, todayYmd))
-    .sort(
-      (a, b) =>
-        (categoryMap.get(a.categoryId)?.sortOrder ?? 99) - (categoryMap.get(b.categoryId)?.sortOrder ?? 99) ||
-        a.priority - b.priority,
-    );
+    .sort((a, b) => b.rate - a.rate);
 
   const [start, end] = getBillingCycle(card.statementDay, todayYmd);
   const daysLeft = diffDays(todayYmd, end) + 1;
@@ -106,9 +106,11 @@ function CardUsage({ card, todayYmd, onOpen }: { card: Card; todayYmd: string; o
       {cardRules.length === 0 && <p className="muted small pad">尚未設定回饋規則</p>}
 
       {cardRules.map((rule) => {
-        const cat = categoryMap.get(rule.categoryId);
+        const types = rule.channelTypes?.length ? rule.channelTypes : ['實體'];
+        const isAll = types.length === CHANNEL_TYPES.length;
+        const label = isAll ? '全通路' : types.join(' · ');
+        const color = types.length === 1 ? CHANNEL_TYPE_COLORS[types[0] as ChannelType] : card.color;
         const used = usedSpend(rule, card, todayYmd, cardTxns);
-        const color = cat?.color ?? '#8e8e93';
         const capped = rule.capAmount != null;
         const remaining = capped ? Math.max(0, rule.capAmount! - used) : Infinity;
         const ratio = capped && rule.capAmount! > 0 ? used / rule.capAmount! : 0;
@@ -116,7 +118,10 @@ function CardUsage({ card, todayYmd, onOpen }: { card: Card; todayYmd: string; o
           <div className="rule-row" key={rule.id}>
             <div className="rule-row-head">
               <span className="rule-name">
-                <Dot color={color} /> {cat?.name ?? '未知類型'} <b>{pct(rule.rate)}</b>
+                {types.map((t) => (
+                  <Dot key={t} color={CHANNEL_TYPE_COLORS[t as ChannelType]} size={8} />
+                ))}
+                {label} <b>{pct(rule.rate)}</b>
                 {rule.resetPeriod === 'calendarMonth' && <span className="tag">自然月</span>}
                 {rule.validTo && <span className="tag">至 {formatMd(rule.validTo)}</span>}
               </span>

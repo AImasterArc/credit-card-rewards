@@ -26,6 +26,18 @@
   ol, ul { padding-left:22px; } li { margin:4px 0; }
   .btn { float:right; font-size:12px; padding:3px 10px; border:0; border-radius:99px; background:var(--pri); color:#fff; cursor:pointer; }
   details { margin:10px 0; } summary { cursor:pointer; color:var(--pri); font-weight:600; }
+  /* CSV Guide & Card Styling */
+  .badge { display:inline-flex; align-items:center; font-size:11px; font-weight:700; padding:2px 7px; border-radius:5px; background:var(--code); border:1px solid var(--line); white-space:nowrap; }
+  .badge-req { color:#ff3b30; background:rgba(255, 59, 48, 0.1); border-color:rgba(255, 59, 48, 0.25); }
+  .badge-opt { color:var(--muted); }
+  .color-chip { display:inline-flex; align-items:center; gap:6px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:13px; font-weight:600; }
+  .color-dot { width:13px; height:13px; border-radius:50%; display:inline-block; box-shadow:0 0 0 1px rgba(0,0,0,0.18); flex:none; }
+  .card-pill { font-weight:700; color:var(--text); display:inline-flex; align-items:center; gap:6px; }
+  .table-container { overflow-x:auto; margin:12px 0; border:1px solid var(--line); border-radius:10px; background:var(--card); }
+  .table-container table { margin:0; }
+  .table-container th { background:var(--code); font-weight:600; }
+  .table-container tr:last-child td { border-bottom:0; }
+  .tag-cat { background:rgba(0,122,255,0.09); color:var(--pri); padding:2px 7px; border-radius:5px; font-weight:600; font-size:12px; white-space:nowrap; }
 </style>
 </head>
 <body>
@@ -124,10 +136,286 @@ gh repo create credit-card-rewards --public --source . --push</code></pre>
 <ol>
   <li>從<b>主畫面圖示</b>開啟 App。</li>
   <li><b>設定 → 持久化儲存 → 啟用</b>，要求系統不要自動清除資料。</li>
-  <li><b>卡片庫 → 新增卡片</b>，設定結帳日；先建一條「一般消費」規則（超過上限的部分會改用它計算），再加指定類型規則。</li>
+  <li><b>卡片庫 → 一鍵載入預設卡片</b>（或手動新增卡片），先建一條「一般消費」規則（超過上限的部分會改用它計算），再加指定類型規則。</li>
   <li>點底部 <b>＋</b> 記第一筆消費，確認推薦與總覽的 Bar 正常。</li>
   <li><b>設定 → 匯出備份</b>，在分享選單選「儲存到檔案」→ iCloud Drive。</li>
 </ol>
+</div>
+
+<div class="step" id="csv-guide">
+<h2><span class="num">XLSX</span>預設卡片檔（default-cards.xlsx / CSV）填寫指南與範例</h2>
+<p>專案提供格式排版美化的 Excel 卡片檔 <code>public/default-cards.xlsx</code>（附凍結窗格與色碼排版）及同格式 CSV，可在推送到 GitHub 前先依個人持有卡片修改，也能隨時在 App 的<b>設定 → 卡片檔</b>一鍵載入、下載範本或匯出。</p>
+
+<div class="note">
+  <b>填寫三大原則：</b>
+  <ol style="margin:4px 0 0; padding-left:20px;">
+    <li><b>每列代表一條回饋規則</b>：同一張卡有多條規則（如網購 10%、海外實體 5%）時，第 2 條規則起，前面卡片資訊（卡名、銀行、結帳日等）<b>直接留空</b>即可。</li>
+    <li><b>只有四個欄位必填</b>：第一列的「卡片名稱」、「結帳日」＋ 每一規則的「通路類型」、「回饋%」，其餘欄位皆為選填。</li>
+    <li><b>通路類型可複選</b>：支援 <code>實體</code>、<code>網路</code>、<code>行動支付</code>，多選以 <code>|</code> 分隔（例：<code>實體|網路</code>）。全選代表全通路（相當於一般消費保底）。</li>
+    <li><b>重置方式</b>：全卡片皆統一依「結帳日」重置各規則消費上限。</li>
+    <li><b>已內建 UTF-8 BOM 與 Excel 原生支援</b>：以 Excel、Numbers、Google 試算表直接開啟皆不亂碼。</li>
+  </ol>
+</div>
+
+<h3 style="font-size:16px; margin:18px 0 8px;">1. 欄位填寫說明字典（共 15 個欄位）</h3>
+<div class="table-container">
+  <table>
+    <thead>
+      <tr>
+        <th style="min-width:110px;">欄位名稱</th>
+        <th style="min-width:70px;">必要性</th>
+        <th style="min-width:90px;">預設值</th>
+        <th>填寫說明與範例</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><b>卡片名稱</b></td>
+        <td><span class="badge badge-req">必填*</span></td>
+        <td>-</td>
+        <td>卡片第一列必填。例：<code>國泰 CUBE 卡</code>、<code>永豐 SPORT 卡</code>、<code>富邦 J 卡</code></td>
+      </tr>
+      <tr>
+        <td><b>銀行</b></td>
+        <td><span class="badge badge-opt">選填</span></td>
+        <td>空白</td>
+        <td>例：<code>國泰世華</code>、<code>永豐銀行</code>、<code>台北富邦</code>、<code>台新銀行</code></td>
+      </tr>
+      <tr>
+        <td><b>末四碼</b></td>
+        <td><span class="badge badge-opt">選填</span></td>
+        <td>空白</td>
+        <td>卡片末 4 碼，便於多卡對照。例：<code>8888</code></td>
+      </tr>
+      <tr>
+        <td><b>結帳日</b></td>
+        <td><span class="badge badge-req">必填*</span></td>
+        <td>-</td>
+        <td>填 <code>1</code>～<code>31</code> 的整數。遇無該日月份（如 2 月無 31 日）自動以該月最後一天計算。</td>
+      </tr>
+      <tr>
+        <td><b>取整</b></td>
+        <td><span class="badge badge-opt">選填</span></td>
+        <td>四捨五入</td>
+        <td>可填 <code>四捨五入</code> 或 <code>捨去</code>（無條件捨去至整數位）。</td>
+      </tr>
+      <tr>
+        <td><b>顏色</b></td>
+        <td><span class="badge badge-opt">選填</span></td>
+        <td>自動選色</td>
+        <td>卡面代表色 16 進位色碼（如 <code>#005596</code>、<code>#f97316</code>）。留空由系統指派。</td>
+      </tr>
+      <tr>
+        <td><b>卡片備註</b></td>
+        <td><span class="badge badge-opt">選填</span></td>
+        <td>空白</td>
+        <td>卡片層級注意事項。例：<code>需申辦電子帳單</code>、<code>綁定 Richart 自動扣繳</code></td>
+      </tr>
+      <tr>
+        <td><b>通路類型</b></td>
+        <td><span class="badge badge-req">必填</span></td>
+        <td>-</td>
+        <td>支援 <code>實體</code>、<code>網路</code>、<code>行動支付</code>，可使用 <code>|</code> 複選（例：<code>實體|網路</code>）。<br>填 <code>實體|網路|行動支付</code> 或 <code>全通路</code> 代表一般消費保底。</td>
+      </tr>
+      <tr>
+        <td><b>回饋%</b></td>
+        <td><span class="badge badge-req">必填</span></td>
+        <td>-</td>
+        <td>填純數字。例：<code>3</code> 代表 3%、<code>0.3</code> 代表 0.3%、<code>1.68</code> 代表 1.68%</td>
+      </tr>
+      <tr>
+        <td><b>每期消費上限</b></td>
+        <td><span class="badge badge-opt">選填</span></td>
+        <td>無上限</td>
+        <td>該規則每期「最高可刷消費金額」（非回饋金上限）。留空即代表無上限。</td>
+      </tr>
+      <tr>
+        <td><b>重置方式</b></td>
+        <td><span class="badge badge-opt">選填</span></td>
+        <td>結帳日</td>
+        <td><code>結帳日</code>（依卡片結帳日重置上限額度）或 <code>自然月</code>（每月 1 號重置）。</td>
+      </tr>
+      <tr>
+        <td><b>通路</b></td>
+        <td><span class="badge badge-opt">選填</span></td>
+        <td>空白</td>
+        <td>適用之特定店家關鍵字，多個以 <code>|</code> 或 <code>、</code> 分隔。例：<code>Uber Eats|foodpanda|王品</code></td>
+      </tr>
+      <tr>
+        <td><b>規則備註</b></td>
+        <td><span class="badge badge-opt">選填</span></td>
+        <td>空白</td>
+        <td>該規則特定條件。例：<code>每月需消耗 10,000 大卡</code>、<code>需完成 Richart 任務</code></td>
+      </tr>
+      <tr>
+        <td><b>活動結束</b></td>
+        <td><span class="badge badge-opt">選填</span></td>
+        <td>空白</td>
+        <td>格式 <code>YYYY-MM-DD</code>。到期前 7 天 App 首頁會主動顯示即將到期提醒。</td>
+      </tr>
+      <tr>
+        <td><b>啟用</b></td>
+        <td><span class="badge badge-opt">選填</span></td>
+        <td>是</td>
+        <td>填 <code>是</code> 或 <code>否</code>，停用則暫時不參與回饋推薦計算。</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<h3 style="font-size:16px; margin:22px 0 8px;">2. 視覺化卡片與回饋規則範例（與 CSV 一致）</h3>
+<div class="table-container">
+  <table>
+    <thead>
+      <tr>
+        <th>卡片名稱 / 銀行</th>
+        <th>卡面代表色</th>
+        <th>結帳日</th>
+        <th>通路類型（可複選）</th>
+        <th>回饋%</th>
+        <th>每期消費上限</th>
+        <th>適用店家 / 備註</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td rowspan="4">
+          <span class="card-pill">國泰 CUBE 卡</span><br>
+          <small style="color:var(--muted)">國泰世華 (末碼 8888)</small>
+        </td>
+        <td rowspan="4"><span class="color-chip"><span class="color-dot" style="background:#005596;"></span>#005596</span></td>
+        <td rowspan="4">每月 15 日</td>
+        <td><span class="tag-cat">全通路</span></td>
+        <td><b>0.3%</b></td>
+        <td>無上限</td>
+        <td><small style="color:var(--muted)">基本保底</small></td>
+      </tr>
+      <tr>
+        <td><span class="tag-cat">實體</span></td>
+        <td><b>3%</b></td>
+        <td>無上限</td>
+        <td>Uber Eats、foodpanda、王品、麥當勞、星巴克</td>
+      </tr>
+      <tr>
+        <td><span class="tag-cat">網路</span></td>
+        <td><b>3%</b></td>
+        <td>無上限</td>
+        <td>蝦皮購物、momo購物網、PChome、淘寶</td>
+      </tr>
+      <tr>
+        <td><span class="tag-cat">實體 · 網路</span></td>
+        <td><b>3%</b></td>
+        <td>無上限</td>
+        <td>海外實體、日韓消費</td>
+      </tr>
+
+      <tr style="border-top:2px solid var(--line);">
+        <td rowspan="2">
+          <span class="card-pill">永豐 SPORT 卡</span><br>
+          <small style="color:var(--muted)">永豐銀行 (末碼 6666)</small>
+        </td>
+        <td rowspan="2"><span class="color-chip"><span class="color-dot" style="background:#f97316;"></span>#f97316</span></td>
+        <td rowspan="2">每月 22 日</td>
+        <td><span class="tag-cat">全通路</span></td>
+        <td><b>1%</b></td>
+        <td>無上限</td>
+        <td><small style="color:var(--muted)">需達運動門檻</small></td>
+      </tr>
+      <tr>
+        <td><span class="tag-cat">行動支付</span></td>
+        <td><b>7%</b></td>
+        <td>NT$ 5,000</td>
+        <td>Apple Pay、Google Pay（月燒 10,000 大卡）</td>
+      </tr>
+
+      <tr style="border-top:2px solid var(--line);">
+        <td rowspan="2">
+          <span class="card-pill">富邦 J 卡</span><br>
+          <small style="color:var(--muted)">台北富邦 (末碼 1234)</small>
+        </td>
+        <td rowspan="2"><span class="color-chip"><span class="color-dot" style="background:#0284c7;"></span>#0284c7</span></td>
+        <td rowspan="2">每月 5 日</td>
+        <td><span class="tag-cat">全通路</span></td>
+        <td><b>1%</b></td>
+        <td>無上限</td>
+        <td><small style="color:var(--muted)">自然月重置</small></td>
+      </tr>
+      <tr>
+        <td><span class="tag-cat">實體</span></td>
+        <td><b>3%</b></td>
+        <td>NT$ 10,000</td>
+        <td>日本實體、韓國實體門市</td>
+      </tr>
+
+      <tr style="border-top:2px solid var(--line);">
+        <td rowspan="3">
+          <span class="card-pill">聯邦 賴點卡</span><br>
+          <small style="color:var(--muted)">聯邦銀行</small>
+        </td>
+        <td rowspan="3"><span class="color-chip"><span class="color-dot" style="background:#059669;"></span>#059669</span></td>
+        <td rowspan="3">每月 28 日</td>
+        <td><span class="tag-cat">全通路</span></td>
+        <td><b>1.68%</b></td>
+        <td>無上限</td>
+        <td><small style="color:var(--muted)">需申辦電子帳單</small></td>
+      </tr>
+      <tr>
+        <td><span class="tag-cat">實體 · 網路</span></td>
+        <td><b>2.68%</b></td>
+        <td>無上限</td>
+        <td>國外實體、國外線上</td>
+      </tr>
+      <tr>
+        <td><span class="tag-cat">實體</span></td>
+        <td><b>10%</b></td>
+        <td>NT$ 1,000</td>
+        <td>王品、瓦城、鬍鬚張（需每月登錄）</td>
+      </tr>
+
+      <tr style="border-top:2px solid var(--line);">
+        <td rowspan="3">
+          <span class="card-pill">台新 @GoGo 卡</span><br>
+          <small style="color:var(--muted)">台新銀行 (末碼 9999)</small>
+        </td>
+        <td rowspan="3"><span class="color-chip"><span class="color-dot" style="background:#e11d48;"></span>#e11d48</span></td>
+        <td rowspan="3">每月 7 日</td>
+        <td><span class="tag-cat">全通路</span></td>
+        <td><b>0.5%</b></td>
+        <td>無上限</td>
+        <td><small style="color:var(--muted)">綁定 Richart 自動扣繳</small></td>
+      </tr>
+      <tr>
+        <td><span class="tag-cat">網路</span></td>
+        <td><b>3.8%</b></td>
+        <td>NT$ 1,000</td>
+        <td>蝦皮、momo、酷澎 Coupang</td>
+      </tr>
+      <tr>
+        <td><span class="tag-cat">行動支付</span></td>
+        <td><b>3.8%</b></td>
+        <td>NT$ 1,000</td>
+        <td>LINE Pay、全支付、台新Pay</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<h3 style="font-size:16px; margin:22px 0 8px;">3. 原始 CSV 內容（public/default-cards.csv）</h3>
+<pre><code>卡片名稱,銀行,末四碼,結帳日,取整,顏色,卡片備註,通路類型,回饋%,每期消費上限,重置方式,通路,規則備註,活動結束,啟用
+國泰 CUBE 卡,國泰世華,8888,15,四捨五入,#005596,需透過網銀 App 切換方案,實體|網路|行動支付,0.3,,結帳日,,,,是
+,,,,,,,實體,3,,結帳日,Uber Eats|foodpanda|王品集團|爭鮮|麥當勞|星巴克,需切換樂饗購方案,,是
+,,,,,,,網路,3,,結帳日,蝦皮購物|momo購物網|PChome|淘寶,需切換玩數位方案,,是
+,,,,,,,實體|網路,3,,結帳日,海外實體|日韓消費,需切換趣旅行方案,,是
+永豐 SPORT 卡,永豐銀行,6666,22,捨去,#f97316,需下載汗水不白流 App 達成運動門檻,實體|網路|行動支付,1,,結帳日,,,,是
+,,,,,,,行動支付,7,5000,結帳日,Apple Pay|Google Pay,每月需消耗 10000 大卡方享加碼,,是
+富邦 J 卡,台北富邦,1234,5,四捨五入,#0284c7,登錄享日本加碼,實體|網路|行動支付,1,,自然月,,,,是
+,,,,,,,實體,3,10000,自然月,日本實體|韓國實體,限日韓實體消費門市,,是
+聯邦 賴點卡,聯邦銀行,,28,四捨五入,#059669,需申辦電子帳單,實體|網路|行動支付,1.68,,結帳日,,,,是
+,,,,,,,實體|網路,2.68,,結帳日,國外實體|國外線上,,,是
+,,,,,,,實體,10,1000,結帳日,王品|瓦城|鬍鬚張,每月需至官網登錄活動,2026-12-31,是
+台新 @GoGo 卡,台新銀行,9999,7,四捨五入,#e11d48,需綁定 Richart 自動扣繳,實體|網路|行動支付,0.5,,結帳日,,,,是
+,,,,,,,網路,3.8,1000,結帳日,蝦皮|momo|酷澎 Coupang,需完成 Richart 數位帳戶任務,,是
+,,,,,,,行動支付,3.8,1000,結帳日,LINE Pay|全支付|台新Pay,需完成 Richart 數位帳戶任務,,是</code></pre>
 </div>
 
 <div class="step">

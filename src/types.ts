@@ -3,7 +3,17 @@ export type ID = string;
 export type RoundingMode = 'floor' | 'round';
 export type ResetPeriod = 'billing' | 'calendarMonth';
 
-/** 消費類型（獨立資料表，可擴增） */
+/** 通路類型（固定三種，可複選） */
+export const CHANNEL_TYPES = ['實體', '網路', '行動支付'] as const;
+export type ChannelType = (typeof CHANNEL_TYPES)[number];
+
+export const CHANNEL_TYPE_COLORS: Record<ChannelType, string> = {
+  實體: '#007aff',
+  網路: '#af52de',
+  行動支付: '#34c759',
+};
+
+/** 通路類型 / 分類相容物件 */
 export interface Category {
   id: ID;
   name: string;
@@ -28,26 +38,28 @@ export interface Card {
 }
 
 /**
- * 回饋規則：同一張卡依消費類型套用。
- * 指定類型的規則「取代」一般消費；超過上限的部分改用該卡「一般消費」規則計算。
+ * 回饋規則：同一張卡依通路類型套用（可複選）。
+ * 全選（實體、網路、行動支付）即為全通路 / 一般消費保底。
+ * 超過上限的部分改用該卡全通路/一般消費規則計算。
  */
 export interface RewardRule {
   id: ID;
   cardId: ID;
-  categoryId: ID;
+  channelTypes: ChannelType[];
   /** 百分比，3 = 3% */
   rate: number;
   /** 每期消費上限；null = 無上限 */
   capAmount: number | null;
   resetPeriod: ResetPeriod;
-  /** 活動期間（YYYY-MM-DD），選填 */
-  validFrom?: string;
+  /** 活動結束（YYYY-MM-DD），選填 */
   validTo?: string;
   channels: string[];
   note: string;
-  /** 同卡同類型多條規則時，數字小的先吃額度 */
-  priority: number;
   enabled: boolean;
+  /** 向下相容選填欄位 */
+  categoryId?: ID;
+  validFrom?: string;
+  priority?: number;
 }
 
 export interface Allocation {
@@ -59,7 +71,7 @@ export interface Allocation {
 export interface Transaction {
   id: ID;
   cardId: ID;
-  categoryId: ID;
+  channelTypes: ChannelType[];
   /** 負數 = 退款 */
   amount: number;
   /** YYYY-MM-DD（消費日） */
@@ -71,6 +83,8 @@ export interface Transaction {
   /** 該筆回饋（已依卡片取整） */
   reward: number;
   createdAt: number;
+  /** 向下相容選填欄位 */
+  categoryId?: ID;
 }
 
 export interface BackupFile {

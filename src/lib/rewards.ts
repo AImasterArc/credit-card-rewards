@@ -1,4 +1,5 @@
-import type { Card, RewardRule, Transaction, Allocation, RoundingMode } from '../types';
+import type { Card, RewardRule, Transaction, Allocation, RoundingMode, ChannelType } from '../types';
+import { CHANNEL_TYPES } from '../types';
 import { getBillingCycle, getCalendarMonth } from './date';
 
 export const GENERAL_CATEGORY_ID = 'general';
@@ -47,17 +48,48 @@ export function remainingSpend(
   return Math.max(0, rule.capAmount - usedSpend(rule, card, dateYmd, txns));
 }
 
-const byPriority = (a: RewardRule, b: RewardRule): number => a.priority - b.priority;
+/** 判斷規則是否為全通路（實體、網路、行動支付皆適用，即一般消費保底） */
+export function isGeneralRule(rule: RewardRule): boolean {
+  const types = rule.channelTypes ?? [];
+  return CHANNEL_TYPES.every((t) => types.includes(t));
+}
+
+/** 判斷規則的通路類型是否與交易的通路類型有交集 */
+export function ruleMatchesChannelTypes(rule: RewardRule, types: readonly ChannelType[]): boolean {
+  const ruleTypes = rule.channelTypes ?? [];
+  if (ruleTypes.length === 0) return true;
+  return ruleTypes.some((t) => types.includes(t));
+}
+
+export interface MatchedRules {
+  designated: RewardRule[];
+  fallback: RewardRule[];
+}
 
 export function matchingRules(
   rules: readonly RewardRule[],
   cardId: string,
-  categoryId: string,
+  channelTypes: readonly ChannelType[],
   dateYmd: string,
-): RewardRule[] {
-  return rules
-    .filter((r) => r.cardId === cardId && r.categoryId === categoryId && isRuleActive(r, dateYmd))
-    .sort(byPriority);
+): MatchedRules {
+  const active = rules.filter(
+    (r) => r.cardId === cardId && isRuleActive(r, dateYmd) && ruleMatchesChannelTypes(r, channelTypes),
+  );
+
+  const designated: RewardRule[] = [];
+  const fallback: RewardRule[] = [];
+
+  for (const r of active) {
+    if (isGeneralRule(r)) fallback.push(r);
+    else designated.push(r);
+  }
+
+  // 指定通路規則：回饋率高的優先、條件更具體（channelTypes 個數少）的優先
+  designated.sort((a, b) => b.rate - a.rate || a.channelTypes.length - b.channelTypes.length);
+  // 保底全通路規則：回饋率高的優先
+  fallback.sort((a, b) => b.rate - a.rate);
+
+  return { designated, fallback };
 }
 
 export interface AllocationResult {
@@ -65,27 +97,23 @@ export interface AllocationResult {
   reward: number;
   /** 沒有任何規則承接的金額（0% 回饋） */
   unrewarded: number;
-  /** 有使用到一般消費作為備援 */
+  /** 有使用到全通路保底規則作為備援 */
   usedFallback: boolean;
 }
 
 /**
- * 依序吃額度：指定類型規則（priority 小的先）→ 超出部分改用一般消費規則 → 剩下的不回饋。
+ * 依序吃額度：指定通路類型規則 → 超出部分改用全通路保底規則 → 剩下的不回饋。
  * 退款（負數）直接沖回第一條符合的規則。
  */
 export function allocate(
   amount: number,
-  categoryId: string,
+  channelTypes: readonly ChannelType[],
   card: Card,
   rules: readonly RewardRule[],
   dateYmd: string,
   priorTxns: readonly Transaction[],
 ): AllocationResult {
-  const designated = matchingRules(rules, card.id, categoryId, dateYmd);
-  const fallback =
-    categoryId === GENERAL_CATEGORY_ID
-      ? []
-      : matchingRules(rules, card.id, GENERAL_CATEGORY_ID, dateYmd);
+  const { designated, fallback } = matchingRules(rules, card.id, channelTypes, dateYmd);
 
   if (amount < 0) {
     const target = designated[0] ?? fallback[0];
@@ -131,7 +159,6 @@ const txnOrder = (a: Transaction, b: Transaction): number =>
 
 /**
  * 從 fromYmd（含）開始依時間順序重算該卡交易的 allocations。
- * 較早的交易不受影響，所以只需要重算 fromYmd 之後的部分。
  */
 export function reallocate(
   card: Card,
@@ -147,7 +174,8 @@ export function reallocate(
       done.push(t);
       continue;
     }
-    const { allocations, reward } = allocate(t.amount, t.categoryId, card, rules, t.date, done);
+    const types = (t.channelTypes?.length ? t.channelTypes : ['實體']) as ChannelType[];
+    const { allocations, reward } = allocate(t.amount, types, card, rules, t.date, done);
     const next = { ...t, allocations, reward };
     done.push(next);
     changed.push(next);
@@ -159,19 +187,19 @@ export interface Recommendation {
   card: Card;
   reward: number;
   effectiveRate: number;
-  /** 此卡這個類型的規則 */
+  /** 此卡符合此通路類型的規則 */
   rules: RewardRule[];
-  /** 此類型剩餘額度總和（Infinity = 無上限） */
+  /** 此通路剩餘額度總和（Infinity = 無上限） */
   remaining: number;
   remainingByRule: Record<string, number>;
   hasDesignated: boolean;
-  /** 指定類型額度全部用完 */
+  /** 指定通路額度全部用完 */
   capped: boolean;
   usedFallback: boolean;
   fallbackRule?: RewardRule;
-  /** 輸入的通路命中規則通路清單 */
+  /** 輸入的特定店家通路命中規則通路清單 */
   channelHit: boolean;
-  /** 有輸入通路、規則有列通路，但都不符合 */
+  /** 有輸入店家通路、規則有列通路，但都不符合 */
   channelMiss: boolean;
   allocation: AllocationResult;
 }
@@ -188,7 +216,7 @@ export function channelMatches(ruleChannels: readonly string[], channel: string)
 }
 
 export function recommend(params: {
-  categoryId: string;
+  channelTypes: readonly ChannelType[];
   amount: number;
   date: string;
   channel: string;
@@ -196,29 +224,30 @@ export function recommend(params: {
   rules: readonly RewardRule[];
   txns: readonly Transaction[];
 }): Recommendation[] {
-  const { categoryId, amount, date, channel, cards, rules, txns } = params;
+  const { channelTypes, amount, date, channel, cards, rules, txns } = params;
   const hasChannel = normalize(channel).length > 0;
 
   const list = cards
     .filter((c) => !c.archived)
     .map<Recommendation>((card) => {
       const cardTxns = txns.filter((t) => t.cardId === card.id);
-      const designated = matchingRules(rules, card.id, categoryId, date);
-      const fallbackRule =
-        categoryId === GENERAL_CATEGORY_ID
-          ? undefined
-          : matchingRules(rules, card.id, GENERAL_CATEGORY_ID, date)[0];
-      const allocation = allocate(amount, categoryId, card, rules, date, cardTxns);
+      const { designated, fallback } = matchingRules(rules, card.id, channelTypes, date);
+      const fallbackRule = fallback[0];
+      const matchedAll = [...designated, ...fallback];
+      const allocation = allocate(amount, channelTypes, card, rules, date, cardTxns);
       const remainingByRule: Record<string, number> = {};
-      for (const r of designated) remainingByRule[r.id] = remainingSpend(r, card, date, cardTxns);
-      const remaining = Object.values(remainingByRule).reduce((s, v) => s + v, 0);
-      const withChannels = designated.filter((r) => r.channels.length > 0);
-      const channelHit = hasChannel && designated.some((r) => channelMatches(r.channels, channel));
+      for (const r of matchedAll) remainingByRule[r.id] = remainingSpend(r, card, date, cardTxns);
+
+      const targetRules = designated.length ? designated : fallback;
+      const remaining = targetRules.reduce((s, r) => s + remainingByRule[r.id], 0);
+      const withChannels = targetRules.filter((r) => r.channels.length > 0);
+      const channelHit = hasChannel && targetRules.some((r) => channelMatches(r.channels, channel));
+
       return {
         card,
         reward: allocation.reward,
         effectiveRate: amount > 0 ? (allocation.reward / amount) * 100 : 0,
-        rules: designated,
+        rules: targetRules,
         remaining,
         remainingByRule,
         hasDesignated: designated.length > 0,

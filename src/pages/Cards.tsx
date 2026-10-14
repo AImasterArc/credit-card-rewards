@@ -2,6 +2,7 @@ import { useData } from '../data';
 import { money, pct } from '../lib/format';
 import { Empty, Icon } from '../components/ui';
 import { ChannelLookup } from './ChannelLookup';
+import { LoadDefaultButton } from './CardFile';
 import type { Card } from '../types';
 
 export function Cards({ onOpenCard }: { onOpenCard: (id: string | null) => void }) {
@@ -21,8 +22,15 @@ export function Cards({ onOpenCard }: { onOpenCard: (id: string | null) => void 
       {active.length === 0 && (
         <Empty
           title="還沒有卡片"
-          desc="新增卡片後，可以為每張卡設定多條回饋規則"
-          action={<button className="btn-primary" onClick={() => onOpenCard(null)}>新增第一張卡</button>}
+          desc="可直接載入預設常用卡片，或手動新增卡片與規則"
+          action={
+            <div className="row gap" style={{ justifyContent: 'center', marginTop: 8 }}>
+              <LoadDefaultButton />
+              <button className="btn-primary" onClick={() => onOpenCard(null)}>
+                手動新增卡片
+              </button>
+            </div>
+          }
         />
       )}
 
@@ -49,7 +57,7 @@ export function Cards({ onOpenCard }: { onOpenCard: (id: string | null) => void 
 }
 
 function CardRow({ card, onClick }: { card: Card; onClick: () => void }) {
-  const { rules, categoryMap } = useData();
+  const { rules } = useData();
   const cardRules = rules.filter((r) => r.cardId === card.id && r.enabled);
   const best = cardRules.reduce((m, r) => Math.max(m, r.rate), 0);
 
@@ -64,12 +72,15 @@ function CardRow({ card, onClick }: { card: Card; onClick: () => void }) {
           {card.bank && `${card.bank} · `}每月 {card.statementDay} 日結帳 · {cardRules.length} 條規則
         </span>
         <span className="chips wrap">
-          {cardRules.slice(0, 4).map((r) => (
-            <span key={r.id} className="tag">
-              {categoryMap.get(r.categoryId)?.name} {pct(r.rate)}
-              {r.capAmount != null && ` / ${money(r.capAmount)}`}
-            </span>
-          ))}
+          {cardRules.slice(0, 4).map((r) => {
+            const typeLabel = r.channelTypes?.length === 3 ? '全通路' : (r.channelTypes ?? ['實體']).join('/');
+            return (
+              <span key={r.id} className="tag">
+                {typeLabel} {pct(r.rate)}
+                {r.capAmount != null && ` / ${money(r.capAmount)}`}
+              </span>
+            );
+          })}
           {cardRules.length > 4 && <span className="tag">+{cardRules.length - 4}</span>}
         </span>
       </div>

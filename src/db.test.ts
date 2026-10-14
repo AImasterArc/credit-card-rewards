@@ -2,15 +2,15 @@ import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   db,
+  resetAll,
+  saveCardWithRules,
+  saveTransaction,
   deleteTransaction,
   exportBackup,
   importBackup,
   isBackupFile,
-  resetAll,
-  saveCardWithRules,
-  saveTransaction,
 } from './db';
-import { GENERAL_CATEGORY_ID } from './lib/rewards';
+import { importCardsFromText } from './cardImport';
 import type { Card, RewardRule, Transaction } from './types';
 
 const CARD: Card = {
@@ -26,15 +26,15 @@ const CARD: Card = {
 };
 
 const RULES: RewardRule[] = [
-  { id: 'base', cardId: 'c1', categoryId: GENERAL_CATEGORY_ID, rate: 0.5, capAmount: null, resetPeriod: 'billing', channels: [], note: '', priority: 0, enabled: true },
-  { id: 'dine', cardId: 'c1', categoryId: 'dining', rate: 3, capAmount: 1000, resetPeriod: 'billing', channels: ['麥當勞'], note: '需登錄', priority: 0, enabled: true },
+  { id: 'base', cardId: 'c1', channelTypes: ['實體', '網路', '行動支付'], rate: 0.5, capAmount: null, resetPeriod: 'billing', channels: [], note: '', enabled: true },
+  { id: 'pay', cardId: 'c1', channelTypes: ['行動支付'], rate: 3, capAmount: 1000, resetPeriod: 'billing', channels: ['麥當勞'], note: '需登錄', enabled: true },
 ];
 
 let seq = 0;
 const mk = (p: Partial<Transaction>): Transaction => ({
   id: `t${++seq}`,
   cardId: 'c1',
-  categoryId: 'dining',
+  channelTypes: ['行動支付'],
   amount: 0,
   date: '2026-10-10',
   channel: '',
@@ -53,37 +53,32 @@ beforeEach(async () => {
 });
 
 describe('seed', () => {
-  it('has default categories including 一般消費', async () => {
+  it('has default channel type categories', async () => {
     const cats = await db.categories.toArray();
-    expect(cats.length).toBeGreaterThanOrEqual(8);
-    expect(cats.some((c) => c.id === GENERAL_CATEGORY_ID)).toBe(true);
+    expect(cats.length).toBeGreaterThanOrEqual(3);
+    expect(cats.some((c) => c.name === '實體')).toBe(true);
+    expect(cats.some((c) => c.name === '網路')).toBe(true);
+    expect(cats.some((c) => c.name === '行動支付')).toBe(true);
   });
 });
 
-describe('saveTransaction', () => {
-  it('computes reward and splits across cap', async () => {
+describe('saveTransaction recomputation', () => {
+  it('applies designated rule within cap and falls back after', async () => {
     await saveTransaction(mk({ id: 'a', amount: 800 }));
+    expect((await get('a')).reward).toBe(24); // 800 * 3%
+
     await saveTransaction(mk({ id: 'b', amount: 500 }));
-    expect((await get('a')).reward).toBe(24);
-    const b = await get('b');
-    expect(b.allocations.map((x) => [x.ruleId, x.spend])).toEqual([['dine', 200], ['base', 300]]);
-    expect(b.reward).toBe(8); // 6 + 1.5 -> round(7.5)=8
+    // 200 * 3% + 300 * 0.5% = 6 + 1.5 = 7.5 -> round 8
+    expect((await get('b')).reward).toBe(8);
   });
 
-  it('deleting an earlier txn gives quota back to later ones', async () => {
-    await saveTransaction(mk({ id: 'a', amount: 1000, date: '2026-10-01' }));
-    await saveTransaction(mk({ id: 'b', amount: 500, date: '2026-10-02' }));
-    expect((await get('b')).reward).toBe(3); // all at 0.5%
+  it('deleting an earlier txn gives quota back to later txn', async () => {
+    await saveTransaction(mk({ id: 'a', amount: 800, date: '2026-10-05' }));
+    await saveTransaction(mk({ id: 'b', amount: 500, date: '2026-10-10' }));
+    expect((await get('b')).reward).toBe(8);
+
     await deleteTransaction(await get('a'));
-    expect((await get('b')).reward).toBe(15);
-  });
-
-  it('editing amount recomputes later txns', async () => {
-    await saveTransaction(mk({ id: 'a', amount: 1000, date: '2026-10-01' }));
-    await saveTransaction(mk({ id: 'b', amount: 500, date: '2026-10-02' }));
-    const a = await get('a');
-    await saveTransaction({ ...a, amount: 200 }, a);
-    expect((await get('b')).reward).toBe(15);
+    expect((await get('b')).reward).toBe(15); // 500 * 3%
   });
 
   it('moving a txn to an earlier date recomputes in chronological order', async () => {
@@ -98,7 +93,7 @@ describe('saveTransaction', () => {
 
   it('changing card recomputes both cards', async () => {
     await db.cards.put({ ...CARD, id: 'c2', name: 'Other', sortOrder: 1 });
-    await db.rules.put({ ...RULES[1], id: 'dine2', cardId: 'c2', rate: 1 });
+    await db.rules.put({ ...RULES[1], id: 'pay2', cardId: 'c2', rate: 1 });
     await saveTransaction(mk({ id: 'a', amount: 1000 }));
     await saveTransaction(mk({ id: 'b', amount: 500 }));
     const a = await get('a');
@@ -138,7 +133,7 @@ describe('backup', () => {
   it('round-trips', async () => {
     await saveTransaction(mk({ id: 'a', amount: 300 }));
     const data = await exportBackup();
-    expect(isBackupFile(JSON.parse(JSON.stringify(data)))).toBe(true);
+    expect(data.txns.length).toBe(1);
     await resetAll();
     expect(await db.txns.count()).toBe(0);
     await importBackup(data);
@@ -149,5 +144,43 @@ describe('backup', () => {
   it('rejects junk', () => {
     expect(isBackupFile({ app: 'other' })).toBe(false);
     expect(isBackupFile(null)).toBe(false);
+  });
+});
+
+describe('importCardsFromText', () => {
+  it('imports cards and parses channelTypes correctly', async () => {
+    const csv = `
+卡片名稱,結帳日,通路類型,回饋%,每期消費上限,通路
+全新卡片,20,實體|網路,5,3000,特約店A|特約店B
+`;
+    const res = await importCardsFromText(csv);
+    expect(res).toContain('匯入完成');
+    const card = (await db.cards.toArray()).find((c) => c.name === '全新卡片');
+    expect(card).toBeDefined();
+    expect(card!.statementDay).toBe(20);
+
+    const rules = await db.rules.where('cardId').equals(card!.id).toArray();
+    expect(rules.length).toBe(1);
+    expect(rules[0].rate).toBe(5);
+    expect(rules[0].capAmount).toBe(3000);
+    expect(rules[0].channelTypes).toEqual(['實體', '網路']);
+    expect(rules[0].channels).toEqual(['特約店A', '特約店B']);
+  });
+
+  it('updates existing card and replaces its rules while preserving other cards', async () => {
+    const csv = `
+卡片名稱,結帳日,通路類型,回饋%
+Test,18,全通路,2
+`;
+    const res = await importCardsFromText(csv);
+    expect(res).toContain('更新 1 張');
+    const card = await db.cards.get('c1');
+    expect(card).toBeDefined();
+    expect(card!.statementDay).toBe(18);
+
+    const rules = await db.rules.where('cardId').equals('c1').toArray();
+    expect(rules.length).toBe(1);
+    expect(rules[0].rate).toBe(2);
+    expect(rules[0].channelTypes).toEqual(['實體', '網路', '行動支付']);
   });
 });

@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useData } from '../data';
-import { db, exportBackup, importBackup, isBackupFile, resetAll } from '../db';
-import { GENERAL_CATEGORY_ID } from '../lib/rewards';
-import { uid } from '../lib/format';
-import { Icon } from '../components/ui';
-import type { Category } from '../types';
+import { exportBackup, importBackup, isBackupFile, resetAll } from '../db';
+import { CardFileSection } from './CardFile';
+import type { ChannelType } from '../types';
+import { CHANNEL_TYPES, CHANNEL_TYPE_COLORS } from '../types';
 
 const LAST_BACKUP_KEY = 'cc-rewards:lastBackup';
 const BACKUP_REMIND_DAYS = 7;
-const PALETTE = ['#8e8e93', '#ff9500', '#007aff', '#34c759', '#af52de', '#ff2d55', '#5ac8fa', '#a2845e', '#ffcc00', '#5856d6', '#30b0c7', '#ff3b30'];
 
 const getLastBackup = (): number | null => {
   const v = localStorage.getItem(LAST_BACKUP_KEY);
@@ -58,7 +56,7 @@ export function BackupReminder() {
 }
 
 export function Settings() {
-  const { categories, cards, rules, txns } = useData();
+  const { cards, rules, txns } = useData();
   const [persisted, setPersisted] = useState<boolean | null>(null);
   const [lastBackup, setLastBackup] = useState(getLastBackup());
   const fileRef = useRef<HTMLInputElement>(null);
@@ -96,16 +94,15 @@ export function Settings() {
     await resetAll();
   };
 
-  const usage = (catId: string): number => rules.filter((r) => r.categoryId === catId).length + txns.filter((t) => t.categoryId === catId).length;
-
   return (
     <>
       <header className="page-header">
         <h1>設定</h1>
       </header>
 
-      <h3 className="section-title">消費類型</h3>
-      <CategoryManager categories={categories} usage={usage} />
+      <ChannelTypeSection />
+
+      <CardFileSection />
 
       <h3 className="section-title">資料備份</h3>
       <section className="form-group">
@@ -162,89 +159,47 @@ export function Settings() {
   );
 }
 
-function CategoryManager({ categories, usage }: { categories: Category[]; usage: (id: string) => number }) {
-  const [newName, setNewName] = useState('');
-  const visible = categories;
-
-  const move = async (index: number, dir: -1 | 1): Promise<void> => {
-    const target = index + dir;
-    if (target < 0 || target >= visible.length) return;
-    const a = visible[index];
-    const b = visible[target];
-    await db.transaction('rw', db.categories, async () => {
-      await db.categories.update(a.id, { sortOrder: b.sortOrder });
-      await db.categories.update(b.id, { sortOrder: a.sortOrder });
-    });
-  };
-
-  const add = async (): Promise<void> => {
-    const name = newName.trim();
-    if (!name) return;
-    await db.categories.add({
-      id: uid(),
-      name,
-      color: PALETTE[categories.length % PALETTE.length],
-      sortOrder: Math.max(0, ...categories.map((c) => c.sortOrder)) + 1,
-      archived: false,
-    });
-    setNewName('');
-  };
-
-  const remove = async (c: Category): Promise<void> => {
-    if (usage(c.id) > 0) {
-      await db.categories.update(c.id, { archived: !c.archived });
-      return;
-    }
-    if (confirm(`刪除類型「${c.name}」？`)) await db.categories.delete(c.id);
-  };
-
-  const cycleColor = async (c: Category): Promise<void> => {
-    const i = PALETTE.indexOf(c.color);
-    await db.categories.update(c.id, { color: PALETTE[(i + 1) % PALETTE.length] });
+function ChannelTypeSection() {
+  const { rules, txns } = useData();
+  const descriptions: Record<ChannelType, string> = {
+    實體: '門市實體刷卡、實體感應消費',
+    網路: '網購、電商平台、外送平台、線上刷卡',
+    行動支付: 'Apple Pay、Google Pay、LINE Pay、全支付等',
   };
 
   return (
-    <section className="form-group">
-      {visible.map((c, i) => (
-        <div className={`cat-row ${c.archived ? 'dim' : ''}`} key={c.id}>
-          <button className="swatch sm" style={{ background: c.color }} onClick={() => cycleColor(c)} aria-label="換顏色" />
-          <input
-            className="input-plain grow"
-            defaultValue={c.name}
-            onBlur={(e) => {
-              const v = e.target.value.trim();
-              if (v && v !== c.name) void db.categories.update(c.id, { name: v });
-              else e.target.value = c.name;
-            }}
-          />
-          <button className="icon-btn" onClick={() => move(i, -1)} disabled={i === 0} aria-label="上移">
-            <Icon name="up" size={18} />
-          </button>
-          <button className="icon-btn" onClick={() => move(i, 1)} disabled={i === visible.length - 1} aria-label="下移">
-            <Icon name="down" size={18} />
-          </button>
-          {c.id === GENERAL_CATEGORY_ID ? (
-            <span className="tag">預設</span>
-          ) : (
-            <button className="btn-text small" onClick={() => remove(c)}>
-              {usage(c.id) > 0 ? (c.archived ? '還原' : '封存') : '刪除'}
-            </button>
-          )}
-        </div>
-      ))}
-      <div className="cat-row">
-        <input
-          className="input-plain grow"
-          placeholder="新增類型名稱"
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && add()}
-          enterKeyHint="done"
-        />
-        <button className="btn-pill" onClick={add} disabled={!newName.trim()}>
-          新增
-        </button>
-      </div>
-    </section>
+    <>
+      <h3 className="section-title">通路類型</h3>
+      <section className="form-group">
+        {CHANNEL_TYPES.map((type) => {
+          const ruleCount = rules.filter((r) => (r.channelTypes ?? []).includes(type)).length;
+          const txnCount = txns.filter((t) => (t.channelTypes ?? []).includes(type)).length;
+          return (
+            <div className="list-btn" key={type}>
+              <span
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: '50%',
+                  background: CHANNEL_TYPE_COLORS[type],
+                  marginRight: 10,
+                  flex: 'none',
+                }}
+              />
+              <div className="grow">
+                <strong>{type}</strong>
+                <div className="muted small">{descriptions[type]}</div>
+              </div>
+              <span className="muted small">
+                {ruleCount} 條規則 · {txnCount} 筆消費
+              </span>
+            </div>
+          );
+        })}
+      </section>
+      <p className="hint pad-x">
+        記帳與卡片規則皆支援通路類型複選。全選（實體、網路、行動支付）即為全通路 / 一般消費保底。
+      </p>
+    </>
   );
 }

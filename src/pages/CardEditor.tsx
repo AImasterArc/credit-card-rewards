@@ -2,16 +2,16 @@ import { useState } from 'react';
 import { useData } from '../data';
 import { db, deleteCardPermanently, saveCardWithRules } from '../db';
 import { CARD_COLORS, money, pct, uid } from '../lib/format';
-import { GENERAL_CATEGORY_ID } from '../lib/rewards';
 import { formatMd } from '../lib/date';
-import type { Card, RewardRule } from '../types';
+import type { Card, ChannelType, RewardRule } from '../types';
+import { CHANNEL_TYPES, CHANNEL_TYPE_COLORS } from '../types';
 import { Dot, Icon, Segmented } from '../components/ui';
 import { RuleSheet } from './RuleSheet';
 
 const DAYS = Array.from({ length: 31 }, (_, i) => i + 1);
 
 export function CardEditor({ cardId, onClose }: { cardId: string | null; onClose: () => void }) {
-  const { cards, rules, txns, categoryMap } = useData();
+  const { cards, rules, txns } = useData();
   const existing = cardId ? cards.find((c) => c.id === cardId) : undefined;
 
   const [card, setCard] = useState<Card>(
@@ -33,29 +33,24 @@ export function CardEditor({ cardId, onClose }: { cardId: string | null; onClose
   const [draftRules, setDraftRules] = useState<RewardRule[]>(() =>
     rules
       .filter((r) => r.cardId === card.id)
-      .sort(
-        (a, b) =>
-          (categoryMap.get(a.categoryId)?.sortOrder ?? 99) - (categoryMap.get(b.categoryId)?.sortOrder ?? 99) ||
-          a.priority - b.priority,
-      ),
+      .sort((a, b) => b.rate - a.rate),
   );
   const [editingRule, setEditingRule] = useState<RewardRule | null>(null);
   const [saving, setSaving] = useState(false);
 
   const patch = (p: Partial<Card>): void => setCard((c) => ({ ...c, ...p }));
   const txnCount = txns.filter((t) => t.cardId === card.id).length;
-  const hasGeneral = draftRules.some((r) => r.categoryId === GENERAL_CATEGORY_ID);
+  const hasGeneral = draftRules.some((r) => r.channelTypes?.length === 3);
 
   const newRule = (): RewardRule => ({
     id: uid(),
     cardId: card.id,
-    categoryId: hasGeneral ? '' : GENERAL_CATEGORY_ID,
+    channelTypes: hasGeneral ? ['實體'] : ['實體', '網路', '行動支付'],
     rate: hasGeneral ? 3 : 0.5,
     capAmount: null,
     resetPeriod: 'billing',
     channels: [],
     note: '',
-    priority: 0,
     enabled: true,
   });
 
@@ -183,26 +178,30 @@ export function CardEditor({ cardId, onClose }: { cardId: string | null; onClose
           </button>
         </div>
         {!hasGeneral && (
-          <p className="hint">建議新增一條「一般消費」規則，指定類型超過上限或沒有對應規則時，會改用一般消費計算。</p>
+          <p className="hint">建議新增一條全選（實體、網路、行動支付）的規則，指定通路超過上限或無對應規則時，會改用它計算。</p>
         )}
 
         <section className="form-group">
           {draftRules.length === 0 && <p className="muted small pad">尚無規則</p>}
           {draftRules.map((r) => {
-            const cat = categoryMap.get(r.categoryId);
+            const types = r.channelTypes?.length ? r.channelTypes : ['實體'];
+            const isAll = types.length === CHANNEL_TYPES.length;
+            const label = isAll ? '全通路（一般消費）' : types.join(' · ');
             return (
               <div className={`rule-item ${r.enabled ? '' : 'dim'}`} key={r.id}>
                 <button className="rule-item-main" onClick={() => setEditingRule(r)}>
-                  <div className="row">
-                    <Dot color={cat?.color ?? '#999'} />
-                    <strong className="grow">{cat?.name ?? '未選類型'}</strong>
+                  <div className="row align-center gap-sm">
+                    {types.map((t) => (
+                      <Dot key={t} color={CHANNEL_TYPE_COLORS[t as ChannelType]} size={8} />
+                    ))}
+                    <strong className="grow">{label}</strong>
                     <b className="accent">{pct(r.rate)}</b>
                   </div>
                   <span className="muted small">
                     {r.capAmount == null ? '無上限' : `上限 ${money(r.capAmount)}`}
                     {' · '}
                     {r.resetPeriod === 'billing' ? '依結帳日重置' : '每月 1 日重置'}
-                    {(r.validFrom || r.validTo) && ` · ${r.validFrom ? formatMd(r.validFrom) : ''}–${r.validTo ? formatMd(r.validTo) : ''}`}
+                    {r.validTo && ` · 到期日 ${formatMd(r.validTo)}`}
                     {!r.enabled && ' · 停用中'}
                   </span>
                   {r.channels.length > 0 && (

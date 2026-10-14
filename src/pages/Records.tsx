@@ -1,14 +1,15 @@
-﻿import { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useData } from '../data';
 import { addMonths, formatMd, formatYm, today, weekday } from '../lib/date';
 import { money, pct, signedMoney } from '../lib/format';
-import type { Transaction } from '../types';
+import type { ChannelType, Transaction } from '../types';
+import { CHANNEL_TYPES, CHANNEL_TYPE_COLORS } from '../types';
 import { Dot, Empty, Icon } from '../components/ui';
 
 const CHART_MONTHS = 6;
 
 export function Records({ onEditTxn }: { onEditTxn: (t: Transaction) => void }) {
-  const { txns, cardMap, categoryMap } = useData();
+  const { txns, cardMap } = useData();
   const currentMonth = today().slice(0, 7);
   const [month, setMonth] = useState(currentMonth);
   const [cardFilter, setCardFilter] = useState<string>('all');
@@ -35,7 +36,15 @@ export function Records({ onEditTxn }: { onEditTxn: (t: Transaction) => void }) 
   }, [txns, month, cardFilter]);
 
   const byCard = groupSum(monthTxns, (t) => t.cardId);
-  const byCategory = groupSum(monthTxns, (t) => t.categoryId);
+  const byChannelType = CHANNEL_TYPES.map((type) => {
+    const list = monthTxns.filter((t) => (t.channelTypes ?? ['實體']).includes(type));
+    return {
+      type,
+      color: CHANNEL_TYPE_COLORS[type],
+      spend: list.reduce((s, t) => s + t.amount, 0),
+      reward: list.reduce((s, t) => s + t.reward, 0),
+    };
+  }).filter((x) => x.spend > 0);
   const byDate = new Map<string, Transaction[]>();
   monthTxns.forEach((t) => byDate.set(t.date, [...(byDate.get(t.date) ?? []), t]));
 
@@ -122,22 +131,21 @@ export function Records({ onEditTxn }: { onEditTxn: (t: Transaction) => void }) 
           )}
 
           <section className="panel">
-            <h3 className="panel-title">各類型</h3>
-            {byCategory.map(([id, s]) => {
-              const cat = categoryMap.get(id);
+            <h3 className="panel-title">各通路類型</h3>
+            {byChannelType.map((s) => {
               const share = totalSpend > 0 ? (s.spend / totalSpend) * 100 : 0;
               return (
-                <div className="breakdown-row col" key={id}>
+                <div className="breakdown-row col" key={s.type}>
                   <div className="row">
-                    <Dot color={cat?.color ?? '#999'} />
+                    <Dot color={s.color} />
                     <span className="grow">
-                      {cat?.name ?? '未知'} <span className="muted small">{share.toFixed(0)}%</span>
+                      {s.type} <span className="muted small">{share.toFixed(0)}%</span>
                     </span>
                     <span className="muted small">{money(s.spend)}</span>
                     <b className="accent breakdown-reward">{money(s.reward)}</b>
                   </div>
                   <div className="bar thin">
-                    <div className="bar-fill" style={{ width: `${Math.max(0, share)}%`, background: cat?.color ?? '#999' }} />
+                    <div className="bar-fill" style={{ width: `${Math.max(0, share)}%`, background: s.color }} />
                   </div>
                 </div>
               );
@@ -154,14 +162,16 @@ export function Records({ onEditTxn }: { onEditTxn: (t: Transaction) => void }) 
                 </div>
                 {list.map((t) => {
                   const card = cardMap.get(t.cardId);
-                  const cat = categoryMap.get(t.categoryId);
+                  const types = t.channelTypes?.length ? t.channelTypes : ['實體'];
+                  const typeLabel = types.join(' · ');
+                  const dotColor = CHANNEL_TYPE_COLORS[types[0] as ChannelType] ?? '#999';
                   return (
                     <button className="txn-row" key={t.id} onClick={() => onEditTxn(t)}>
-                      <Dot color={cat?.color ?? '#999'} />
+                      <Dot color={dotColor} />
                       <div className="grow txn-main">
-                        <span>{t.channel || cat?.name || '消費'}</span>
+                        <span>{t.channel || typeLabel || '消費'}</span>
                         <span className="muted small">
-                          {card?.name ?? '已刪除卡片'} · {cat?.name}
+                          {card?.name ?? '已刪除卡片'} · {typeLabel}
                           {t.note && ` · ${t.note}`}
                         </span>
                       </div>
